@@ -334,6 +334,7 @@ forwarder sends — essential for remote clients where bandwidth matters.
 | `toast` | `Toast`, `CompletionToast` |
 | `events` | `EventReceived`, `EventProcessed` |
 | `auth` | `AuthRequired` |
+| `preferences` | `PreferenceChanged` |
 
 ## Auditing conformance
 

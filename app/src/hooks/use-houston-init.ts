@@ -6,6 +6,7 @@ import { useAgentStore } from "../stores/agents";
 import { useUIStore } from "../stores/ui";
 import { analytics } from "../lib/analytics";
 import { DEFAULT_TAB_ID } from "../agents/standard-tabs";
+import { runFlagMigrations } from "../lib/featureFlags";
 
 /**
  * App initialization hook. Called once in App.tsx.
@@ -24,6 +25,15 @@ export function useHoustonInit() {
     initRef.current = true;
 
     async function init() {
+      // Apply any pending feature-flag migrations before anything else reads
+      // preferences. Idempotent; phase 0 ships with `FLAG_MIGRATIONS` empty
+      // so this is a no-op until a future rename or delete lands.
+      try {
+        await runFlagMigrations();
+      } catch (e) {
+        console.error("[init] flag migrations failed:", e);
+      }
+
       await loadConfigs();
       await loadWorkspaces();
 
