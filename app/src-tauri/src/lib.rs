@@ -76,7 +76,7 @@ pub fn run() {
     dmg_guard::handle_if_needed();
 
     // `houston_dir()` flips to `~/.dev-houston/` in debug builds so
-    // `pnpm tauri dev` stays isolated from an installed release of Houston.
+    // `bun run tauri dev` stays isolated from an installed release of Houston.
     let houston = houston_tauri::houston_db::db::houston_dir();
 
     // Sentry MUST init before logging so the tracing subscriber's

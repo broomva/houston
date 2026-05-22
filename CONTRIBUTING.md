@@ -20,7 +20,7 @@ If you're unsure whether something fits, open an issue and ask. Cheaper than a c
 ```bash
 git clone https://github.com/gethouston/houston.git
 cd houston
-pnpm install
+bun install
 cargo check --workspace
 ```
 
@@ -28,13 +28,13 @@ cargo check --workspace
 
 ```bash
 # Run the Houston app
-cd app && pnpm tauri dev
+cd app && bun run tauri dev
 
 # Run the showcase
-cd showcase && pnpm dev
+cd showcase && bun run dev
 
 # TypeScript check
-pnpm typecheck
+bun run typecheck
 
 # Rust check
 cargo check --workspace
@@ -59,7 +59,7 @@ cargo test --workspace
 1. Confirm your change fits the bar in [Before you open a PR](#before-you-open-a-pr)
 2. Create a feature branch from `main`
 3. Make your changes
-4. Run `pnpm typecheck` and `cargo check --workspace`
+4. Run `bun run typecheck` and `cargo check --workspace`
 5. Open a PR to `main`, fill out the template honestly
 
 ## Commit Messages

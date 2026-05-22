@@ -5,8 +5,8 @@
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
-    "beforeDevCommand": "pnpm dev",
-    "beforeBuildCommand": "pnpm build && node scripts/sentry-inject.mjs"
+    "beforeDevCommand": "bun run dev",
+    "beforeBuildCommand": "bun run build && node scripts/sentry-inject.mjs"
   },
   "app": {
     "withGlobalTauri": false,
