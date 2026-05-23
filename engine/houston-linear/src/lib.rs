@@ -42,6 +42,7 @@
 pub mod agent_session;
 pub mod auth;
 pub mod callback;
+pub mod commands;
 pub mod connection;
 pub mod error;
 pub mod keychain;

@@ -34,6 +34,7 @@ thiserror = "1"
 dirs = "5"
 
 houston-ui-events = { workspace = true }
+houston-engine-protocol = { workspace = true }
 
 # Typed GraphQL client — codegen against vendored Linear schema.
 # See schema/linear.graphql + build.rs.
