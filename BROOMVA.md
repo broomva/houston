@@ -93,7 +93,7 @@ The fork has been configured for the friendly-fork model:
 | `delete_branch_on_merge` | `false` | **Critical** — fork-merge must NOT delete the branch, because the same branch is also the head of the upstream PR. Delete would orphan upstream. |
 | `allow_update_branch` | `true` | UI option to refresh fork PRs against latest main |
 
-Branch protection on `main`: none currently. Could add a required `CI Success` check (the `ci.yml` now lives in the consolidated #272) if we want fork-side CI to gate merges; until then, merges are immediate-on-clean.
+Branch protection on `main`: the `CI Success` check is **required**. Fork PRs merge with `gh pr merge --squash --auto`, which fires once CI passes — never `--admin` to bypass it. `ci.yml` already lives on fork `main` (that check is what gates merges); the upstream-bound copy rides in the consolidated #272.
 
 ## Building from the fork
 
