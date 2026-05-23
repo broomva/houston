@@ -120,7 +120,15 @@ async fn start_session(
     let rt = SessionRuntime::clone(&st.engine.sessions);
     let sink = st.engine.events.clone();
     let db = st.engine.db.clone();
-    let key = sessions::start(&rt, sink, db, &st.engine.app_system_prompt, params).await?;
+    let key = sessions::start(
+        &rt,
+        sink,
+        db,
+        &st.engine.app_system_prompt,
+        &st.engine.paths,
+        params,
+    )
+    .await?;
 
     Ok(Json(StartResponse { session_key: key }))
 }
@@ -152,6 +160,7 @@ async fn start_onboarding(
         db,
         &st.engine.app_system_prompt,
         &st.engine.app_onboarding_prompt,
+        &st.engine.paths,
         agent_dir,
         req.session_key,
     )
