@@ -35,9 +35,14 @@ dirs = "5"
 
 houston-ui-events = { workspace = true }
 
-# C1.5 will add:
-#   cynic = { version = "3", features = ["http-reqwest"] }
-#   [build-dependencies] cynic-codegen = "3"
+# Typed GraphQL client — codegen against vendored Linear schema.
+# See schema/linear.graphql + build.rs.
+cynic = { version = "3", features = ["http-reqwest"] }
+
+[build-dependencies]
+# cynic-codegen runs at build time. Re-runs whenever
+# schema/linear.graphql changes — see build.rs cargo::rerun-if-changed.
+cynic-codegen = "3"
 
 [dev-dependencies]
 tokio = { workspace = true }
