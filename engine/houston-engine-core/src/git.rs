@@ -24,17 +24,20 @@ const MAX_LOG_LIMIT: u32 = 500;
 // ─── Requests ──────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GitStatusRequest {
     pub cwd: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GitLogRequest {
     pub cwd: String,
     pub limit: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GitDiffRequest {
     pub cwd: String,
     /// When set, restrict the diff to one path. When None, diff the whole
@@ -46,6 +49,7 @@ pub struct GitDiffRequest {
 
 /// One file row from `git status --porcelain=v1`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GitStatusEntry {
     /// Two-char porcelain code, e.g. `"M "`, `" M"`, `"??"`, `"A "`, `"MM"`.
     pub code: String,
@@ -55,6 +59,7 @@ pub struct GitStatusEntry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GitStatusResponse {
     pub entries: Vec<GitStatusEntry>,
     /// Current branch name, or None on detached HEAD.
@@ -62,6 +67,7 @@ pub struct GitStatusResponse {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GitCommit {
     pub sha: String,
     pub author: String,
@@ -71,11 +77,13 @@ pub struct GitCommit {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GitLogResponse {
     pub commits: Vec<GitCommit>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GitDiffResponse {
     /// Raw unified diff text. v1 frontend renders with simple +/- coloring;
     /// v2 may parse into hunks for syntax highlighting.
