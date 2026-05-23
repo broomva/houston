@@ -46,3 +46,4 @@ cynic-codegen = "3"
 
 [dev-dependencies]
 tokio = { workspace = true }
+tempfile = "3"
