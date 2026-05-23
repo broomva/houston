@@ -30,11 +30,13 @@ pub struct CallbackParams {
 /// (`tokio::time::timeout`, typically 5 minutes — long enough for
 /// real user consent, short enough to free the port).
 pub async fn run_callback_listener() -> Result<CallbackParams, LinearError> {
-    let listener = tokio::net::TcpListener::bind(format!(
-        "127.0.0.1:{LINEAR_OAUTH_CALLBACK_PORT}"
-    ))
-    .await
-    .map_err(|e| LinearError::Oauth(format!("bind callback port {LINEAR_OAUTH_CALLBACK_PORT}: {e}")))?;
+    let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{LINEAR_OAUTH_CALLBACK_PORT}"))
+        .await
+        .map_err(|e| {
+            LinearError::Oauth(format!(
+                "bind callback port {LINEAR_OAUTH_CALLBACK_PORT}: {e}"
+            ))
+        })?;
 
     let (mut stream, _) = listener
         .accept()

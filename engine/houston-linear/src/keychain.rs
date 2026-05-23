@@ -92,14 +92,7 @@ fn whoami() -> Result<String, LinearError> {
 
 fn read_all(username: &str) -> Result<serde_json::Map<String, serde_json::Value>, LinearError> {
     let output = std::process::Command::new("security")
-        .args([
-            "find-generic-password",
-            "-s",
-            SERVICE,
-            "-a",
-            username,
-            "-w",
-        ])
+        .args(["find-generic-password", "-s", SERVICE, "-a", username, "-w"])
         .output()
         .map_err(|e| LinearError::Keychain(format!("security find failed: {e}")))?;
 

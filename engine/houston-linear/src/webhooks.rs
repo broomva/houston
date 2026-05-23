@@ -52,10 +52,7 @@ pub fn verify_signature(
 ///
 /// Returns [`LinearError::WebhookReplay`] when the timestamp is older
 /// than [`crate::WEBHOOK_REPLAY_WINDOW_SECS`] seconds.
-pub fn check_replay_window(
-    now_unix_ms: i64,
-    delivered_unix_ms: i64,
-) -> Result<(), LinearError> {
+pub fn check_replay_window(now_unix_ms: i64, delivered_unix_ms: i64) -> Result<(), LinearError> {
     let age_secs = (now_unix_ms - delivered_unix_ms) / 1_000;
     if age_secs > crate::WEBHOOK_REPLAY_WINDOW_SECS {
         return Err(LinearError::WebhookReplay);

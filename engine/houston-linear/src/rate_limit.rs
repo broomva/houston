@@ -45,10 +45,7 @@ pub struct TokenBucket {
 impl TokenBucket {
     /// New bucket with Linear's documented quota (full at start).
     pub fn linear_default() -> Self {
-        Self::new(
-            crate::RATE_LIMIT_POINTS_PER_HOUR,
-            REFILL_POINTS_PER_SEC,
-        )
+        Self::new(crate::RATE_LIMIT_POINTS_PER_HOUR, REFILL_POINTS_PER_SEC)
     }
 
     /// New bucket — explicit capacity + refill rate (testing).
