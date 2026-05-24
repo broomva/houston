@@ -103,6 +103,10 @@
       "tile_layout": {
         "label": "Disposición en mosaico",
         "description": "Divide la pestaña de chat en dos paneles, la conversación a la izquierda y la última respuesta del asistente fijada a la derecha para leerla mejor."
+      },
+      "claude_hooks": {
+        "label": "Hooks de Claude Code",
+        "description": "Instala hooks ligeros en el CLI de Claude Code en tu computador para que cada llamada a herramientas se agregue a un archivo JSONL que puedes seguir con tail e inspeccionar."
       }
     },
     "resetAll": "Restablecer todos los ajustes avanzados",
