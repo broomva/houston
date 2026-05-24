@@ -28,6 +28,7 @@ import providersEn from "../locales/en/providers.json";
 import errorsEn from "../locales/en/errors.json";
 import eventsEn from "../locales/en/events.json";
 import checkpointsEn from "../locales/en/checkpoints.json";
+import claudeHooksEn from "../locales/en/claudeHooks.json";
 import gitEn from "../locales/en/git.json";
 import portableEn from "../locales/en/portable.json";
 import tileEn from "../locales/en/tile.json";
@@ -49,6 +50,7 @@ import providersEs from "../locales/es/providers.json";
 import errorsEs from "../locales/es/errors.json";
 import eventsEs from "../locales/es/events.json";
 import checkpointsEs from "../locales/es/checkpoints.json";
+import claudeHooksEs from "../locales/es/claudeHooks.json";
 import gitEs from "../locales/es/git.json";
 import portableEs from "../locales/es/portable.json";
 import tileEs from "../locales/es/tile.json";
@@ -70,6 +72,7 @@ import providersPt from "../locales/pt/providers.json";
 import errorsPt from "../locales/pt/errors.json";
 import eventsPt from "../locales/pt/events.json";
 import checkpointsPt from "../locales/pt/checkpoints.json";
+import claudeHooksPt from "../locales/pt/claudeHooks.json";
 import gitPt from "../locales/pt/git.json";
 import portablePt from "../locales/pt/portable.json";
 import tilePt from "../locales/pt/tile.json";
@@ -137,6 +140,7 @@ const resources = {
     errors: errorsEn,
     events: eventsEn,
     checkpoints: checkpointsEn,
+    claudeHooks: claudeHooksEn,
     git: gitEn,
     portable: portableEn,
     tile: tileEn,
@@ -160,6 +164,7 @@ const resources = {
     errors: errorsEs,
     events: eventsEs,
     checkpoints: checkpointsEs,
+    claudeHooks: claudeHooksEs,
     git: gitEs,
     portable: portableEs,
     tile: tileEs,
@@ -183,6 +188,7 @@ const resources = {
     errors: errorsPt,
     events: eventsPt,
     checkpoints: checkpointsPt,
+    claudeHooks: claudeHooksPt,
     git: gitPt,
     portable: portablePt,
     tile: tilePt,
@@ -226,6 +232,7 @@ void i18n
       "errors",
       "events",
       "checkpoints",
+      "claudeHooks",
       "git",
       "portable",
       "tile",

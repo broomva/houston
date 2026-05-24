@@ -23,6 +23,7 @@ import type providers from "../locales/en/providers.json";
 import type errors from "../locales/en/errors.json";
 import type events from "../locales/en/events.json";
 import type checkpoints from "../locales/en/checkpoints.json";
+import type claudeHooks from "../locales/en/claudeHooks.json";
 import type git from "../locales/en/git.json";
 import type portable from "../locales/en/portable.json";
 import type tile from "../locales/en/tile.json";
@@ -49,6 +50,7 @@ declare module "react-i18next" {
       errors: typeof errors;
       events: typeof events;
       checkpoints: typeof checkpoints;
+      claudeHooks: typeof claudeHooks;
       git: typeof git;
       portable: typeof portable;
       tile: typeof tile;

@@ -583,6 +583,25 @@ export interface CheckpointListResponse {
   checkpoints: Checkpoint[];
 }
 
+// ---------- Claude Code hooks (Houston-managed settings.json hooks) ----------
+
+/**
+ * Status of Houston's hook entries in the user's `~/.claude/settings.json`.
+ * Mirrors `houston_claude_hooks::HookStatus` in the engine — the engine is
+ * the source of truth (`houstonHookCount > 0` means installed; the UI
+ * never installs by writing the file itself).
+ */
+export interface ClaudeHookStatus {
+  settingsPath: string;
+  settingsExists: boolean;
+  /** Number of Houston-tagged hook entries on disk. 0 = not installed. */
+  houstonHookCount: number;
+  /** All hook entries in the file (Houston + user). */
+  totalHookCount: number;
+  /** Where the hooks append their JSONL events. Shown to the user. */
+  eventsLogPath: string;
+}
+
 export interface RunShellRequest {
   path: string;
   command: string;

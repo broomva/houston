@@ -622,6 +622,15 @@ export const tauriCheckpoints = {
     ),
 };
 
+// ─── Claude Code hooks (advanced.claude_hooks) ────────────────────────
+
+export const tauriClaudeHooks = {
+  status: () => call("claude_hooks_status", () => getEngine().claudeHookStatus()),
+  install: () => call("claude_hooks_install", () => getEngine().installClaudeHooks()),
+  uninstall: () =>
+    call("claude_hooks_uninstall", () => getEngine().uninstallClaudeHooks()),
+};
+
 // ─── Worktrees & shell ────────────────────────────────────────────────
 
 export const tauriWorktree = {

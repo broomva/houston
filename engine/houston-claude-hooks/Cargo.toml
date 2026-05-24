@@ -1,0 +1,16 @@
+[package]
+name = "houston-claude-hooks"
+version = "0.4.12"
+edition = "2021"
+description = "Install/uninstall Houston-managed hooks in Claude Code's settings.json (Phase 7 of RFC #248)"
+license = "MIT"
+repository = "https://github.com/gethouston/houston"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = "1"
+tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

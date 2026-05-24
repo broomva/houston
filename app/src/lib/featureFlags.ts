@@ -124,6 +124,18 @@ export const FLAG_REGISTRY: Record<string, FlagDef> = {
     since: "0.4.5",
     graduationTarget: "permanent",
   },
+  "advanced.claude_hooks": {
+    key: "advanced.claude_hooks",
+    category: "advanced",
+    default: false,
+    labelKey: "advanced.flags.claude_hooks.label",
+    descriptionKey: "advanced.flags.claude_hooks.description",
+    enforcementSurface: "engine",
+    status: "beta",
+    learnMoreSlug: "claude-hooks",
+    since: "0.4.6",
+    graduationTarget: "permanent",
+  },
 };
 
 export type FlagMigration =

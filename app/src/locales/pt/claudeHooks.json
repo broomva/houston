@@ -1,0 +1,23 @@
+{
+  "title": "Hooks do Claude Code",
+  "description": "O Houston pode instalar hooks leves no CLI do Claude Code no seu computador. Cada chamada de ferramenta é anexada a um arquivo JSONL que você pode acompanhar com tail e inspecionar.",
+  "fields": {
+    "status": "Status",
+    "settingsPath": "settings.json",
+    "eventsLog": "Log de eventos"
+  },
+  "status": {
+    "installed_one": "Instalado ({{count}} hook)",
+    "installed_other": "Instalado ({{count}} hooks)",
+    "notInstalled": "Não instalado",
+    "coexisting_one": "{{count}} outro hook já em disco foi mantido",
+    "coexisting_other": "{{count}} outros hooks já em disco foram mantidos"
+  },
+  "actions": {
+    "install": "Instalar",
+    "installing": "Instalando…",
+    "uninstall": "Desinstalar",
+    "uninstalling": "Desinstalando…"
+  },
+  "tailHint": "Rode tail -f no log de eventos para ver cada chamada de ferramenta ao vivo."
+}
