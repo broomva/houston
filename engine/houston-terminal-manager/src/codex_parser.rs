@@ -391,6 +391,7 @@ fn parse_item_streaming(event: &CodexEvent, acc: &mut CodexAccumulator) -> Vec<F
                 return vec![FeedItem::ToolCall {
                     name: "Bash".into(),
                     input: serde_json::json!({ "command": cmd }),
+                    tool_use_id: None,
                 }];
             }
             vec![]
@@ -400,6 +401,7 @@ fn parse_item_streaming(event: &CodexEvent, acc: &mut CodexAccumulator) -> Vec<F
             vec![FeedItem::ToolCall {
                 name: "Edit".into(),
                 input: serde_json::json!({ "description": desc }),
+                tool_use_id: None,
             }]
         }
         "mcp_tool_call" => {
@@ -411,6 +413,7 @@ fn parse_item_streaming(event: &CodexEvent, acc: &mut CodexAccumulator) -> Vec<F
             vec![FeedItem::ToolCall {
                 name,
                 input: serde_json::Value::Null,
+                tool_use_id: None,
             }]
         }
         "web_search" => {
@@ -418,6 +421,7 @@ fn parse_item_streaming(event: &CodexEvent, acc: &mut CodexAccumulator) -> Vec<F
             vec![FeedItem::ToolCall {
                 name: "WebSearch".into(),
                 input: serde_json::json!({ "query": query }),
+                tool_use_id: None,
             }]
         }
         _ => vec![],
@@ -458,7 +462,11 @@ fn parse_item_completed(event: &CodexEvent, acc: &mut CodexAccumulator) -> Vec<F
             } else {
                 output.to_string()
             };
-            vec![FeedItem::ToolResult { content, is_error }]
+            vec![FeedItem::ToolResult {
+                content,
+                is_error,
+                tool_use_id: None,
+            }]
         }
         "file_change" => {
             let desc = describe_file_changes(item);
@@ -466,6 +474,7 @@ fn parse_item_completed(event: &CodexEvent, acc: &mut CodexAccumulator) -> Vec<F
             vec![FeedItem::ToolResult {
                 content: desc,
                 is_error,
+                tool_use_id: None,
             }]
         }
         "mcp_tool_call" => {
@@ -478,6 +487,7 @@ fn parse_item_completed(event: &CodexEvent, acc: &mut CodexAccumulator) -> Vec<F
             vec![FeedItem::ToolResult {
                 content: format!("{name} completed"),
                 is_error,
+                tool_use_id: None,
             }]
         }
         "error" => {
@@ -630,7 +640,7 @@ mod tests {
         let items = parse_codex_event(started, &mut a);
         assert_eq!(items.len(), 1);
         match &items[0] {
-            FeedItem::ToolCall { name, input } => {
+            FeedItem::ToolCall { name, input, .. } => {
                 assert_eq!(name, "Bash");
                 assert_eq!(input["command"], "bash -lc ls");
             }
@@ -641,7 +651,9 @@ mod tests {
         let items = parse_codex_event(completed, &mut a);
         assert_eq!(items.len(), 1);
         match &items[0] {
-            FeedItem::ToolResult { content, is_error } => {
+            FeedItem::ToolResult {
+                content, is_error, ..
+            } => {
                 assert!(content.contains("src/"));
                 assert!(!is_error);
             }
@@ -666,7 +678,9 @@ mod tests {
         let items = parse_codex_event(line, &mut acc());
         assert_eq!(items.len(), 1);
         match &items[0] {
-            FeedItem::ToolResult { content, is_error } => {
+            FeedItem::ToolResult {
+                content, is_error, ..
+            } => {
                 assert!(content.contains("update: src/main.rs"));
                 assert!(!is_error);
             }

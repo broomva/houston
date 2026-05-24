@@ -42,13 +42,11 @@
     "integration": "Integración de app",
     "alreadyConnected": "Ya está conectado",
     "connected": "Conectado",
-    "connecting": "Conectando...",
     "connect": "Conectar",
-    "waitingToConnect": "Esperando a que te conectes",
-    "reconnect": "Reconectar",
-    "verifiedToast": "{{name}} está conectado",
-    "connectedFollowup": "Ya conecté {{name}}. Por favor continúa.",
-    "followupFailed": "No pudimos avisar al asistente que {{name}} está conectado"
+    "verify": "Ya me conecté",
+    "verifying": "Comprobando...",
+    "notVerified": "Aún no podemos verificar, intenta de nuevo",
+    "verifiedToast": "{{name}} está conectado"
   },
   "composioSignin": {
     "appName": "Proveedor de integraciones",
@@ -60,30 +58,7 @@
   "modelSelector": {
     "selectModel": "Elige un modelo",
     "model": "Modelo",
-    "notConnected": "Sin conexión",
-    "checking": "Verificando...",
-    "effort": "Esfuerzo de razonamiento",
-    "effortLevels": {
-      "low": "Bajo",
-      "medium": "Medio",
-      "high": "Alto",
-      "xhigh": "Muy alto",
-      "max": "Máximo"
-    },
-    "effortDescriptions": {
-      "low": "Más rápido, menos análisis.",
-      "medium": "Equilibrio entre velocidad y profundidad.",
-      "high": "Análisis más profundo para tareas difíciles.",
-      "xhigh": "Ideal para tareas complejas.",
-      "max": "Análisis máximo, sin límite de tokens."
-    },
-    "modelDescriptions": {
-      "gpt-5_5": "El modelo más avanzado de OpenAI.",
-      "claude-sonnet-4-6": "Mejor equilibrio entre velocidad y calidad.",
-      "claude-opus-4-8": "Opus mas reciente. Mejor alineamiento y codigo agente que 4.7.",
-      "claude-fable-5": "El modelo mas capaz. Consume el doble de creditos que Opus 4.8.",
-      "claude-opus-4-7": "Modelo anterior. Autonomia de codigo y razonamiento complejo."
-    }
+    "notConnected": "Sin conexión"
   },
   "contextMeter": {
     "title": "Contexto",
@@ -126,5 +101,14 @@
   },
   "filesUpdated_one": "1 archivo actualizado",
   "filesUpdated_other": "{{count}} archivos actualizados",
-  "contextCompacted": "Resumimos la conversación anterior para que el chat pueda continuar"
+  "askUserQuestion": {
+    "submit": "Enviar",
+    "submitting": "Enviando...",
+    "other": "Otra",
+    "otherPlaceholder": "Escribe tu respuesta",
+    "selectOne": "Elige una",
+    "selectMany": "Elige una o más",
+    "answered": "Respondido",
+    "preparing": "Preparando la pregunta..."
+  }
 }

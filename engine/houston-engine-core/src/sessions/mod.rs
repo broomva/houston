@@ -8,9 +8,8 @@
 //! - [`start`] — spawn + monitor a session via
 //!   `houston-agents-conversations`, streaming updates to the engine's event
 //!   sink (which WS clients subscribe to via `session:{key}` topics).
-//! - [`cancel`] — kill the running CLI process tree for a given session_key
-//!   (verified, with SIGKILL escalation) and emit a "Stopped by user" feed
-//!   item + `completed` status. See [`cancel`] (module `cancel.rs`).
+//! - [`cancel`] — SIGTERM the running CLI for a given session_key and emit
+//!   a "Stopped by user" feed item + `completed` status.
 //! - [`resolve_provider`] — agent-config → Anthropic default fallback.
 //!
 //! Callers (REST handlers, Tauri adapter) supply the already-resolved
@@ -18,14 +17,13 @@
 //! lives in the adapter today; it will move into `engine-core` in a later
 //! phase once `agent_store` is ported.
 
-mod cancel;
-mod compaction;
+pub mod ask_user;
 mod control;
 pub mod file_changes;
 pub mod generate_instructions;
 pub mod history;
-mod provider_oneshot;
 pub mod provider;
+mod provider_oneshot;
 pub mod suggested_routine;
 pub mod summarize;
 mod summary_text;
@@ -33,7 +31,7 @@ mod workdir_locks;
 
 use crate::agents::prompt as agent_prompt;
 use crate::paths::EnginePaths;
-use crate::CoreResult;
+use crate::{CoreError, CoreResult};
 use control::{
     SessionControl, SessionIdentity, SessionTurnGuard, SessionTurnLocks, WorkdirActivity,
 };
@@ -41,14 +39,12 @@ use houston_agents_conversations::session_id_tracker::SessionIdTracker;
 use houston_agents_conversations::session_pids::SessionPidMap;
 use houston_agents_conversations::session_runner::{self, PersistOptions};
 use houston_db::Database;
-use houston_terminal_manager::{CompactTrigger, FeedItem, Provider};
+use houston_terminal_manager::{FeedItem, Provider};
 use houston_ui_events::{DynEventSink, HoustonEvent};
 use std::path::{Path, PathBuf};
 use workdir_locks::{WorkdirLocks, WorkdirSessionGuard};
 
-pub use cancel::cancel;
-pub use houston_agents_conversations::session_pids::PidInsert;
-pub use provider::{resolve_effort, resolve_provider, ResolvedProvider};
+pub use provider::{resolve_provider, ResolvedProvider};
 
 /// Engine-owned session state. Cheap to clone.
 #[derive(Default, Clone)]
@@ -59,16 +55,29 @@ pub struct SessionRuntime {
     control: SessionControl,
     turn_locks: SessionTurnLocks,
     workdir_activity: WorkdirActivity,
+    /// Pairs Houston MCP `AskUserQuestion` tool calls with answers
+    /// submitted by the user over REST. See [`ask_user`] for the protocol.
+    pub ask_user: ask_user::PendingAskUserRegistry,
+    /// Self-loopback identity for the in-engine MCP server. When set, every
+    /// new Claude session gets a per-session mcp_config pointing at
+    /// `<base_url>/v1/mcp/<session_key>/`. The server binary populates this
+    /// once it knows its own bind address and token; embedding scenarios
+    /// without an HTTP server leave it `None` and the ask-user tool stays
+    /// unavailable to the agent.
+    pub mcp_self: Option<crate::state::McpSelf>,
 }
 
 impl SessionRuntime {
-    /// Acquire the per-folder session lock, waiting if another session is
-    /// already running in that folder. Routines use this to serialize runs
-    /// that share a working directory — two routines scheduled for the same
-    /// time both run, one after the other, instead of the second being
-    /// dropped (issue #362). The guard releases on drop.
-    pub(crate) async fn acquire_workdir(&self, working_dir: &Path) -> WorkdirSessionGuard {
-        self.workdir_locks.acquire(working_dir).await
+    pub(crate) async fn try_acquire_workdir(
+        &self,
+        working_dir: &Path,
+    ) -> CoreResult<WorkdirSessionGuard> {
+        self.workdir_locks
+            .try_acquire(working_dir)
+            .await
+            .ok_or_else(|| {
+                CoreError::Conflict("another mission is already running in this folder".to_string())
+            })
     }
 
     async fn acquire_turn(&self, id: &SessionIdentity) -> SessionTurnGuard {
@@ -103,11 +112,6 @@ pub struct StartParams {
     /// `--effort <value>`. Accepted values vary per provider; the caller is
     /// responsible for passing something each CLI understands (e.g. "medium").
     pub effort: Option<String>,
-    /// When `true`, the frontend has detected the context window is nearly
-    /// full and wants this turn to run on a freshly-compacted session.
-    /// Honored only when there's an existing session to compact; ignored on
-    /// the first turn. See [`compaction`].
-    pub compact: bool,
 }
 
 /// Start a session turn. The request is accepted immediately. Turns with the
@@ -118,6 +122,7 @@ pub async fn start(
     events: DynEventSink,
     db: Database,
     app_system_prompt: &str,
+    paths: &EnginePaths,
     params: StartParams,
 ) -> Result<String, crate::CoreError> {
     let session_key = params.session_key.clone();
@@ -127,6 +132,7 @@ pub async fn start(
     let generation = rt.control.register(&identity).await;
     let rt = rt.clone();
     let app_system_prompt = app_system_prompt.to_string();
+    let paths = paths.clone();
 
     tokio::spawn({
         let events = events.clone();
@@ -138,6 +144,7 @@ pub async fn start(
                 events.clone(),
                 db,
                 &app_system_prompt,
+                &paths,
                 params,
                 identity.clone(),
                 generation,
@@ -188,6 +195,7 @@ async fn run_start(
     events: DynEventSink,
     db: Database,
     app_system_prompt: &str,
+    paths: &EnginePaths,
     params: StartParams,
     identity: SessionIdentity,
     generation: u64,
@@ -202,16 +210,49 @@ async fn run_start(
         provider,
         model,
         effort,
-        compact,
     } = params;
 
     if !agent_dir.exists() {
         std::fs::create_dir_all(&agent_dir)?;
     }
 
+    // Wrap the events sink with the ask-user tap. The tap snoops every
+    // FeedItem flying through this session and tells the registry the
+    // moment a `mcp__houston__AskUserQuestion` tool_use lands, so the
+    // in-engine MCP handler (which will be invoked any millisecond now
+    // by the spawned claude subprocess) can correlate its call with
+    // the `tool_use_id`. Non-ask-user events pass through unchanged.
+    let events = ask_user::AskUserSinkTap::wrap(events, rt.ask_user.clone(), session_key.clone());
+
     let _turn_guard = rt.acquire_turn(&identity).await;
     if rt.control.is_stale(&identity, generation).await {
-        bail_cancelled_turn(rt, &events, &agent_dir, &session_key, &identity).await;
+        tracing::info!("[sessions] skipping cancelled queued turn session_key={session_key}");
+        // The desktop UI optimistically wrote `running` to the activity
+        // row when the user pressed send (see the comment at the
+        // `set_status_by_session_key("running")` call below). If we exit
+        // here without resetting, the row stays stuck on `running`
+        // forever — the kanban "running" column shows a permanently
+        // spinning mission for work that never actually started, because
+        // `cancel()` only kills the process / dequeues the turn and
+        // doesn't touch the activity file. Flip to `needs_you` so the
+        // user can retry, edit, or move to done.
+        let agent_path = agent_dir.to_string_lossy().to_string();
+        match crate::agents::activity::set_status_by_session_key(
+            &agent_dir,
+            &session_key,
+            "needs_you",
+        ) {
+            Ok(Some(_)) => {
+                events.emit(HoustonEvent::ActivityChanged { agent_path });
+            }
+            Ok(None) => { /* ad-hoc session, no board row to flip */ }
+            Err(e) => {
+                tracing::warn!(
+                    "[sessions] failed to flip cancelled queued activity: {e} (session_key={session_key})"
+                );
+            }
+        }
+        rt.control.finish(&identity).await;
         return Ok(());
     }
 
@@ -256,111 +297,7 @@ async fn run_start(
         .session_ids
         .get_for_session(&agent_key, &working_dir, &session_key, provider)
         .await;
-    let agent_path = agent_dir.to_string_lossy().to_string();
-    let mut resume_id = sid_handle.get().await;
-    // What the CLI actually receives this turn. Normally the user's prompt;
-    // for a forced compaction it becomes the summary-seeded prompt, while the
-    // persisted/displayed user message stays the original (see `persist`).
-    let mut cli_prompt = prompt.clone();
-
-    // Forced autocompact (mechanism B): the frontend flagged this turn because
-    // the context window is nearly full. Summarize the visible history,
-    // abandon the current resume id (kept in `.history` so the chat stays
-    // visible), and run this turn on a FRESH provider session seeded with the
-    // summary. The user's chat_feed is never mutated.
-    if compact {
-        if let Some(old_id) = resume_id.clone() {
-            match compaction::build_compaction_seed(
-                &db,
-                &working_dir,
-                &agent_dir,
-                &session_key,
-                &prompt,
-                provider,
-                model.as_deref(),
-            )
-            .await
-            {
-                Ok(Some(seed)) => {
-                    cli_prompt = seed.prompt;
-                    // Emit the marker live so the divider appears immediately,
-                    // and persist it under the OLD session id so it sits at the
-                    // boundary between the prior turns and the fresh session.
-                    events.emit(HoustonEvent::FeedItem {
-                        agent_path: agent_path.clone(),
-                        session_key: session_key.clone(),
-                        item: FeedItem::ContextCompacted {
-                            trigger: CompactTrigger::Proactive,
-                            pre_tokens: seed.pre_tokens,
-                        },
-                    });
-                    let data = serde_json::json!({
-                        "trigger": "proactive",
-                        "pre_tokens": seed.pre_tokens,
-                    })
-                    .to_string();
-                    if let Err(e) = db
-                        .add_chat_feed_item_by_session(&old_id, "context_compacted", &data, &source)
-                        .await
-                    {
-                        tracing::warn!(
-                            "[sessions] failed to persist compaction marker: {e} (session_key={session_key})"
-                        );
-                    }
-                    sid_handle.clear_current_preserving_history().await;
-                    resume_id = None;
-                    tracing::info!(
-                        "[sessions] proactively compacted context for session_key={session_key} (abandoned resume_id={old_id})"
-                    );
-                }
-                Ok(None) => {
-                    tracing::info!(
-                        "[sessions] compaction requested but no visible history to summarize (session_key={session_key})"
-                    );
-                }
-                Err(e) => {
-                    // Non-fatal: fall back to a normal resume. The provider's
-                    // own auto-compaction is the backstop, and the context
-                    // indicator still shows the high fill so it stays visible.
-                    tracing::warn!(
-                        "[sessions] context compaction failed, continuing with normal resume: {e} (session_key={session_key})"
-                    );
-                }
-            }
-        }
-    }
-
-    let resume_recovery_prompt = if resume_id.is_some() {
-        let activity_hint = match activity_hint_for_session_key(&agent_dir, &session_key) {
-            Ok(hint) => hint,
-            Err(e) => {
-                tracing::warn!(
-                    "[sessions] failed to load activity hint for resume recovery: {e} (session_key={session_key})"
-                );
-                None
-            }
-        };
-        match history::resume_recovery_prompt(
-            &db,
-            &working_dir,
-            Some(&agent_dir),
-            &session_key,
-            &prompt,
-            activity_hint.as_deref(),
-        )
-        .await
-        {
-            Ok(prompt) => prompt,
-            Err(e) => {
-                tracing::warn!(
-                    "[sessions] failed to build resume recovery prompt: {e} (session_key={session_key})"
-                );
-                None
-            }
-        }
-    } else {
-        None
-    };
+    let resume_id = sid_handle.get().await;
 
     tracing::info!(
         "[sessions] start agent_dir={} session_key={} resume_id={:?} provider={}",
@@ -370,17 +307,7 @@ async fn run_start(
         provider,
     );
 
-    // Re-check staleness right before spawning: the prep work above
-    // (compaction summarize, resume-recovery prompt) can take seconds,
-    // and a Stop pressed in that window already bumped the generation.
-    // Without this check the CLI would spawn AFTER the user cancelled
-    // and run to completion behind a "Stopped by user" message
-    // (issue #469). The pid-map tombstone covers the remaining
-    // instants between this check and PID registration.
-    if rt.control.is_stale(&identity, generation).await {
-        bail_cancelled_turn(rt, &events, &agent_dir, &session_key, &identity).await;
-        return Ok(());
-    }
+    let agent_path = agent_dir.to_string_lossy().to_string();
 
     // Flip the matching board activity to "running" synchronously, before
     // the CLI subprocess spawns. Desktop UI pre-wrote this from the send
@@ -412,15 +339,33 @@ async fn run_start(
         lifecycle: None,
     });
 
+    // Generate the per-session MCP config file pointing the spawned claude
+    // CLI at this engine's in-process MCP server. Only when (a) the server
+    // binary has populated `rt.mcp_self` (i.e. we know our own URL+token)
+    // AND (b) the provider is anthropic (codex/gemini don't wire MCP in
+    // v1). Failure to write is non-fatal — we just disable the ask-user
+    // tool for this session and let the agent fall back to text.
+    let mcp_config_path = if provider.id() == "anthropic" {
+        match write_mcp_config_file(rt.mcp_self.as_ref(), &paths.home_dir, &session_key) {
+            Ok(path) => path,
+            Err(e) => {
+                tracing::warn!("[sessions] mcp_config write failed for {session_key}: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let mcp_config_for_cleanup = mcp_config_path.clone();
+
     let events_for_end = events.clone();
     let working_dir_for_end = working_dir.clone();
     let handle = session_runner::spawn_and_monitor(
         events,
         agent_path.clone(),
         session_key.clone(),
-        cli_prompt,
+        prompt,
         resume_id,
-        resume_recovery_prompt,
         working_dir,
         system_prompt,
         Some(sid_handle),
@@ -429,6 +374,7 @@ async fn run_start(
         provider,
         model,
         effort,
+        mcp_config_path,
     );
 
     // Own the end-of-session activity flip engine-side. Before this, the
@@ -535,70 +481,193 @@ async fn run_start(
     }
     rt.control.finish(&identity).await;
 
+    // Clean up the per-session MCP config file. Best-effort — leaving it on
+    // disk would leak token material in a world-readable file path, so we
+    // log on failure but don't fail the session for it.
+    if let Some(path) = mcp_config_for_cleanup {
+        if let Err(e) = std::fs::remove_file(&path) {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                tracing::warn!(
+                    "[sessions] failed to remove mcp_config at {}: {e}",
+                    path.display()
+                );
+            }
+        }
+    }
+
     Ok(())
 }
 
-/// A queued or prepped turn discovered it was cancelled before its CLI
-/// spawned. The desktop UI optimistically wrote `running` to the activity
-/// row when the user pressed send; without resetting, the row stays stuck
-/// on `running` forever — the kanban "running" column shows a permanently
-/// spinning mission for work that never actually started, because
-/// `cancel()` only kills the process / dequeues the turn and doesn't touch
-/// the activity file. Flip to `needs_you` so the user can retry, edit, or
-/// move to done. Also clears the pid-map cancel tombstone (no process will
-/// ever register for this turn) and releases the control slot.
-async fn bail_cancelled_turn(
-    rt: &SessionRuntime,
-    events: &DynEventSink,
-    agent_dir: &Path,
+/// Write a per-session MCP config JSON pointing claude at this engine's
+/// in-process MCP server. Returns the file path (or `None` if `mcp_self`
+/// isn't set yet — caller falls back to no MCP for the session).
+///
+/// File layout (matches the `--mcp-config` format Claude Code accepts):
+/// ```json
+/// {
+///   "mcpServers": {
+///     "houston": {
+///       "type": "http",
+///       "url": "http://127.0.0.1:31338/v1/mcp/<session_key>/",
+///       "headers": { "Authorization": "Bearer <token>" }
+///     }
+///   }
+/// }
+/// ```
+fn write_mcp_config_file(
+    mcp_self: Option<&crate::state::McpSelf>,
+    home_dir: &Path,
     session_key: &str,
-    identity: &SessionIdentity,
-) {
-    tracing::info!("[sessions] skipping cancelled turn session_key={session_key}");
-    let agent_path = agent_dir.to_string_lossy().to_string();
-    match crate::agents::activity::set_status_by_session_key(agent_dir, session_key, "needs_you") {
-        Ok(Some(_)) => {
-            events.emit(HoustonEvent::ActivityChanged { agent_path });
-        }
-        Ok(None) => { /* ad-hoc session, no board row to flip */ }
-        Err(e) => {
-            tracing::warn!(
-                "[sessions] failed to flip cancelled queued activity: {e} (session_key={session_key})"
-            );
-        }
-    }
-    let _stale_pid = rt.pid_map.remove(session_key).await;
-    rt.control.finish(identity).await;
-}
-
-fn activity_hint_for_session_key(
-    agent_dir: &Path,
-    session_key: &str,
-) -> CoreResult<Option<String>> {
-    let implied_id = session_key.strip_prefix("activity-");
-    let activity = crate::agents::activity::list(agent_dir)?
-        .into_iter()
-        .find(|item| {
-            item.session_key.as_deref() == Some(session_key)
-                || implied_id.is_some_and(|id| item.id == id)
-        });
-    let Some(activity) = activity else {
+) -> std::io::Result<Option<PathBuf>> {
+    let Some(mcp) = mcp_self else {
         return Ok(None);
     };
+    let dir = home_dir.join("tmp").join("mcp");
+    std::fs::create_dir_all(&dir)?;
+    // session_key already comes from the frontend so it's a stable id; but
+    // file-system-safety still demands we strip anything that isn't a
+    // file-name-safe character. The caller's session_key is opaque to the
+    // CLI — only this engine reads the path back to delete it.
+    let safe_key: String = session_key
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let path = dir.join(format!("{safe_key}.json"));
+    let url = format!(
+        "{}/v1/mcp/{}/",
+        mcp.base_url.trim_end_matches('/'),
+        session_key
+    );
+    // `timeout` raises the tool-call watchdog from the 60-second default to
+    // 1 hour — humans answering a clarifying question may take a while.
+    // (The 60-second first-byte fetch budget is separate; we beat that
+    // by streaming SSE keepalives from the `tools/call` handler.)
+    let body = serde_json::json!({
+        "mcpServers": {
+            "houston": {
+                "type": "http",
+                "url": url,
+                "headers": {
+                    "Authorization": format!("Bearer {}", mcp.token),
+                },
+                "timeout": 3_600_000_u32,
+            }
+        }
+    });
+    std::fs::write(&path, body.to_string())?;
+    // Best-effort tighten permissions to owner-only (mode 0600). This file
+    // holds the engine token. Failure to chmod is a warning, not an error —
+    // the parent ~/.houston is already owner-only by convention.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(metadata) = std::fs::metadata(&path) {
+            let mut perms = metadata.permissions();
+            perms.set_mode(0o600);
+            let _ = std::fs::set_permissions(&path, perms);
+        }
+    }
+    Ok(Some(path))
+}
 
-    let title = activity.title.trim();
-    let description = activity.description.trim();
-    let hint = match (
-        title.is_empty(),
-        description.is_empty(),
-        title == description,
-    ) {
-        (true, true, _) => None,
-        (false, true, _) | (false, false, true) => Some(title.to_string()),
-        (true, false, _) => Some(description.to_string()),
-        (false, false, false) => Some(format!("{title}\n\n{description}")),
-    };
-    Ok(hint)
+/// Cancel a running or queued session. On Unix sends `SIGTERM` to the
+/// provider process group; on Windows issues `taskkill /PID <pid> /T /F`
+/// (terminates the process tree). Emits a `Stopped by user` feed item +
+/// `completed` session status so the UI can reconcile.
+///
+/// Returns `true` if a process or queued turn was found, `false` otherwise.
+pub async fn cancel(
+    rt: &SessionRuntime,
+    events: &DynEventSink,
+    agent_path: &str,
+    session_key: &str,
+) -> bool {
+    let identity = SessionIdentity::new(agent_path.to_string(), session_key.to_string());
+    let had_queued = rt.control.cancel(&identity).await;
+    let pid = rt.pid_map.remove(session_key).await;
+
+    // Drop any pending AskUserQuestion state so an in-flight MCP handler
+    // doesn't hang forever waiting on a user answer that will never come.
+    // mcp_await_answer resolves with Err the moment we drop the senders.
+    rt.ask_user.cancel(session_key).await;
+
+    if let Some(pid) = pid {
+        tracing::info!("[sessions] cancel session_key={session_key} pid={pid}");
+        use tokio::time::{timeout, Duration};
+        match timeout(Duration::from_millis(750), terminate_process_tree(pid)).await {
+            Ok(Ok(status)) if status.success() => {}
+            Ok(Ok(status)) => {
+                tracing::warn!(
+                    "[sessions] terminate command exited with {status} for session_key={session_key} pid={pid}"
+                );
+            }
+            Ok(Err(e)) => {
+                tracing::warn!(
+                    "[sessions] failed to run terminate command for session_key={session_key} pid={pid}: {e}"
+                );
+            }
+            Err(_) => {
+                tracing::warn!(
+                    "[sessions] terminate command timed out for session_key={session_key} pid={pid}"
+                );
+            }
+        }
+    } else if !had_queued {
+        return false;
+    }
+
+    events.emit(HoustonEvent::FeedItem {
+        agent_path: agent_path.to_string(),
+        session_key: session_key.to_string(),
+        item: FeedItem::SystemMessage("Stopped by user".into()),
+    });
+    events.emit(HoustonEvent::SessionStatus {
+        agent_path: agent_path.to_string(),
+        session_key: session_key.to_string(),
+        status: "completed".into(),
+        error: None,
+    });
+    true
+}
+
+#[cfg(unix)]
+async fn terminate_process_tree(pid: u32) -> std::io::Result<std::process::ExitStatus> {
+    let group_status = tokio::process::Command::new("kill")
+        .arg("-TERM")
+        .arg(format!("-{pid}"))
+        .stderr(std::process::Stdio::null())
+        .kill_on_drop(true)
+        .status()
+        .await?;
+    if group_status.success() {
+        return Ok(group_status);
+    }
+    tokio::process::Command::new("kill")
+        .arg("-TERM")
+        .arg(pid.to_string())
+        .stderr(std::process::Stdio::null())
+        .kill_on_drop(true)
+        .status()
+        .await
+}
+
+#[cfg(windows)]
+async fn terminate_process_tree(pid: u32) -> std::io::Result<std::process::ExitStatus> {
+    tokio::process::Command::new("taskkill")
+        .arg("/PID")
+        .arg(pid.to_string())
+        .arg("/T")
+        .arg("/F")
+        .stderr(std::process::Stdio::null())
+        .kill_on_drop(true)
+        .status()
+        .await
 }
 
 /// Start an onboarding session: seeds the agent and runs the first turn with
@@ -613,6 +682,7 @@ pub async fn start_onboarding(
     db: Database,
     app_system_prompt: &str,
     app_onboarding_prompt: &str,
+    paths: &EnginePaths,
     agent_dir: PathBuf,
     session_key: String,
 ) -> Result<String, crate::CoreError> {
@@ -623,13 +693,13 @@ pub async fn start_onboarding(
     let product_prompt = format!("{app_system_prompt}{app_onboarding_prompt}");
 
     let resolved = resolve_provider(&agent_dir);
-    let effort = resolve_effort(&agent_dir, resolved.provider);
 
     start(
         rt,
         events,
         db,
         app_system_prompt,
+        paths,
         StartParams {
             agent_dir: agent_dir.clone(),
             working_dir: agent_dir,
@@ -639,8 +709,7 @@ pub async fn start_onboarding(
             source: Some("desktop".into()),
             provider: resolved.provider,
             model: resolved.model,
-            effort,
-            compact: false,
+            effort: None,
         },
     )
     .await
@@ -690,6 +759,10 @@ mod tests {
         let guard = rt.acquire_turn(&identity).await;
         let db = Database::connect_in_memory().await.unwrap();
         let events: DynEventSink = Arc::new(NoopEventSink);
+        let paths = EnginePaths {
+            docs_dir: dir.path().to_path_buf(),
+            home_dir: dir.path().to_path_buf(),
+        };
 
         let accepted = timeout(
             Duration::from_millis(100),
@@ -698,6 +771,7 @@ mod tests {
                 events.clone(),
                 db,
                 "",
+                &paths,
                 StartParams {
                     agent_dir: dir.path().to_path_buf(),
                     working_dir: dir.path().to_path_buf(),
@@ -708,7 +782,6 @@ mod tests {
                     provider: "openai".parse().unwrap(),
                     model: None,
                     effort: None,
-                    compact: false,
                 },
             ),
         )
@@ -719,117 +792,5 @@ mod tests {
         assert_eq!(accepted, "chat-test");
         assert!(cancel(&rt, &events, &dir.path().to_string_lossy(), "chat-test",).await);
         drop(guard);
-    }
-
-    #[tokio::test]
-    async fn acquire_workdir_serializes_same_folder() {
-        // The primitive behind serial routine execution (issue #362): two
-        // acquisitions of the same folder queue — the second only proceeds
-        // after the first guard drops.
-        let rt = SessionRuntime::default();
-        let dir = TempDir::new().unwrap();
-
-        let first = rt.acquire_workdir(dir.path()).await;
-        assert!(
-            timeout(Duration::from_millis(20), rt.acquire_workdir(dir.path()))
-                .await
-                .is_err(),
-            "second acquire on a busy folder must wait"
-        );
-        drop(first);
-        assert!(
-            timeout(Duration::from_millis(50), rt.acquire_workdir(dir.path()))
-                .await
-                .is_ok(),
-            "second acquire proceeds once the folder frees"
-        );
-    }
-
-    #[tokio::test]
-    async fn acquire_workdir_allows_distinct_folders_concurrently() {
-        let rt = SessionRuntime::default();
-        let one = TempDir::new().unwrap();
-        let two = TempDir::new().unwrap();
-
-        let _a = rt.acquire_workdir(one.path()).await;
-        // Different folder — no contention even while the first is held.
-        assert!(
-            timeout(Duration::from_millis(50), rt.acquire_workdir(two.path()))
-                .await
-                .is_ok()
-        );
-    }
-
-    #[tokio::test]
-    async fn cancel_before_pid_leaves_tombstone_for_late_spawn() {
-        // Issue #469: Stop pressed while the turn is still in prep — no
-        // PID exists yet. The cancel must poison the pid map so the CLI
-        // that spawns moments later is flagged and killed on arrival.
-        use houston_agents_conversations::session_pids::PidInsert;
-        let rt = SessionRuntime::default();
-        let dir = TempDir::new().unwrap();
-        let identity = SessionIdentity::new(
-            dir.path().to_string_lossy().to_string(),
-            "chat-race".into(),
-        );
-        let _generation = rt.control.register(&identity).await;
-        let events: DynEventSink = Arc::new(NoopEventSink);
-
-        assert!(cancel(&rt, &events, &dir.path().to_string_lossy(), "chat-race").await);
-
-        assert_eq!(
-            rt.pid_map.insert("chat-race".into(), 12_345).await,
-            PidInsert::AlreadyCancelled
-        );
-        rt.control.finish(&identity).await;
-    }
-
-    #[tokio::test]
-    async fn cancel_clears_stale_running_activity_without_pid_or_queue() {
-        let rt = SessionRuntime::default();
-        let dir = TempDir::new().unwrap();
-        let activity = crate::agents::activity::create(
-            dir.path(),
-            crate::agents::types::NewActivity {
-                title: "stale".into(),
-                description: String::new(),
-                agent: None,
-                worktree_path: None,
-                provider: None,
-                model: None,
-            },
-        )
-        .unwrap();
-        let session_key = activity.session_key.clone().expect("session key");
-        let events: DynEventSink = Arc::new(NoopEventSink);
-
-        assert!(cancel(&rt, &events, &dir.path().to_string_lossy(), &session_key).await);
-
-        let persisted = crate::agents::activity::list(dir.path()).unwrap();
-        assert_eq!(persisted[0].status, "needs_you");
-    }
-
-    #[test]
-    fn activity_hint_for_recovery_uses_title_and_description() {
-        let dir = TempDir::new().unwrap();
-        let activity = crate::agents::activity::create(
-            dir.path(),
-            crate::agents::types::NewActivity {
-                title: "Investigate stuck chat".into(),
-                description: "Original prompt details".into(),
-                agent: None,
-                worktree_path: None,
-                provider: None,
-                model: None,
-            },
-        )
-        .unwrap();
-        let session_key = activity.session_key.expect("session key");
-
-        let hint = activity_hint_for_session_key(dir.path(), &session_key)
-            .expect("hint lookup")
-            .expect("hint");
-
-        assert_eq!(hint, "Investigate stuck chat\n\nOriginal prompt details");
     }
 }

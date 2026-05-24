@@ -182,6 +182,14 @@ export type { ChatProcessLabels } from "./chat-process-block";
 export { ChatStatusLine } from "./chat-status-line";
 export type { ChatStatusLineProps } from "./chat-status-line";
 
+export { AskUserQuestionCard } from "./ask-user-question-card";
+export type {
+  AskUserQuestion,
+  AskUserQuestionAnswer,
+  AskUserQuestionCardProps,
+  AskUserQuestionLabels,
+} from "./ask-user-question-card";
+
 export { ChatInput } from "./chat-input";
 export type { ChatInputProps, ChatComposerLabels } from "./chat-input";
 export type { AttachMenuItem } from "./chat-input-parts";

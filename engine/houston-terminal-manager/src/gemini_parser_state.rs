@@ -68,28 +68,48 @@ pub fn parse_gemini_event(line: &str, acc: &mut GeminiAccumulator) -> Vec<FeedIt
 
 fn handle_event(event: GeminiEvent, acc: &mut GeminiAccumulator) -> Vec<FeedItem> {
     match event {
-        GeminiEvent::Init { session_id, model, .. } => {
+        GeminiEvent::Init {
+            session_id, model, ..
+        } => {
             acc.session_id = Some(session_id);
             if !model.is_empty() {
                 acc.model = Some(model);
             }
             vec![]
         }
-        GeminiEvent::Message { role, content, delta, .. } => {
-            handle_message(role, content, delta, acc)
-        }
-        GeminiEvent::ToolUse { tool_name, tool_id, parameters, .. } => {
+        GeminiEvent::Message {
+            role,
+            content,
+            delta,
+            ..
+        } => handle_message(role, content, delta, acc),
+        GeminiEvent::ToolUse {
+            tool_name,
+            tool_id,
+            parameters,
+            ..
+        } => {
             let mut items = flush_assistant_buffer(acc);
-            acc.tool_names_by_id.insert(tool_id, tool_name.clone());
-            let input =
-                serde_json::to_value(&parameters).unwrap_or(serde_json::Value::Null);
-            items.push(FeedItem::ToolCall { name: tool_name, input });
+            acc.tool_names_by_id
+                .insert(tool_id.clone(), tool_name.clone());
+            let input = serde_json::to_value(&parameters).unwrap_or(serde_json::Value::Null);
+            items.push(FeedItem::ToolCall {
+                name: tool_name,
+                input,
+                tool_use_id: Some(tool_id),
+            });
             items
         }
-        GeminiEvent::ToolResult { tool_id, status, output, error, .. } => {
+        GeminiEvent::ToolResult {
+            tool_id,
+            status,
+            output,
+            error,
+            ..
+        } => {
             let mut items = flush_assistant_buffer(acc);
             acc.tool_names_by_id.remove(&tool_id);
-            items.push(tool_result_item(status, output, error));
+            items.push(tool_result_item(status, output, error, Some(tool_id)));
             items
         }
         GeminiEvent::Error { message, .. } => {
@@ -99,9 +119,12 @@ fn handle_event(event: GeminiEvent, acc: &mut GeminiAccumulator) -> Vec<FeedItem
             items.push(FeedItem::SystemMessage(message));
             items
         }
-        GeminiEvent::Result { status, error, stats, .. } => {
-            handle_result(status, error, stats, acc)
-        }
+        GeminiEvent::Result {
+            status,
+            error,
+            stats,
+            ..
+        } => handle_result(status, error, stats, acc),
         GeminiEvent::Unknown => {
             tracing::debug!("[gemini] unknown event variant — ignoring");
             vec![]
@@ -122,7 +145,9 @@ fn handle_message(
         GeminiMessageRole::Assistant if content.is_empty() => vec![],
         GeminiMessageRole::Assistant if delta => {
             acc.assistant_buffer.push_str(&content);
-            vec![FeedItem::AssistantTextStreaming(acc.assistant_buffer.clone())]
+            vec![FeedItem::AssistantTextStreaming(
+                acc.assistant_buffer.clone(),
+            )]
         }
         GeminiMessageRole::Assistant => {
             // Non-delta assistant message — treat as a final block.
@@ -144,16 +169,22 @@ fn handle_result(
     if status == GeminiStatus::Error {
         items.push(classify_result_error(error.as_ref()));
     }
+    // Gemini stats expose total_tokens / input_tokens / output_tokens /
+    // cached. Map into the FinalResult shape so the
+    // `advanced.context_meter` wheel has data on gemini turns too.
+    let (input_tokens, output_tokens, cache_read_input_tokens) = stats
+        .as_ref()
+        .map(|s| (Some(s.input_tokens), Some(s.output_tokens), Some(s.cached)))
+        .unwrap_or((None, None, None));
     items.push(FeedItem::FinalResult {
         result: result_summary(stats.as_ref()),
         // Gemini emits no cost field — see schema findings §3.
         cost_usd: None,
         duration_ms,
-        // Context-usage indicator covers Anthropic + Codex for now. Gemini is
-        // a "coming soon" provider with no published context-window size in
-        // the model catalog, so we leave usage unset until it ships (the token
-        // stats are already in `stats` and can be normalized then).
-        usage: None,
+        input_tokens,
+        output_tokens,
+        cache_creation_input_tokens: None,
+        cache_read_input_tokens,
     });
     items
 }
@@ -168,17 +199,19 @@ fn classify_result_error(error: Option<&GeminiErrorPayload>) -> FeedItem {
         Some(e) => (e.kind.as_str(), e.message.as_str()),
         None => ("", "gemini reported an error with no detail"),
     };
-    let typed = provider.classify_result_error(kind, message).unwrap_or_else(|| {
-        let raw = if kind.is_empty() {
-            message.to_string()
-        } else {
-            format!("{kind}: {message}")
-        };
-        ProviderError::Unknown {
-            provider: "gemini".into(),
-            raw_excerpt: truncate_excerpt(&raw),
-        }
-    });
+    let typed = provider
+        .classify_result_error(kind, message)
+        .unwrap_or_else(|| {
+            let raw = if kind.is_empty() {
+                message.to_string()
+            } else {
+                format!("{kind}: {message}")
+            };
+            ProviderError::Unknown {
+                provider: "gemini".into(),
+                raw_excerpt: truncate_excerpt(&raw),
+            }
+        });
     FeedItem::ProviderError(typed)
 }
 
@@ -193,11 +226,13 @@ fn tool_result_item(
     status: GeminiStatus,
     output: Option<String>,
     error: Option<GeminiErrorPayload>,
+    tool_use_id: Option<String>,
 ) -> FeedItem {
     match status {
         GeminiStatus::Success => FeedItem::ToolResult {
             content: output.unwrap_or_else(|| "(non-text result)".to_string()),
             is_error: false,
+            tool_use_id,
         },
         GeminiStatus::Error => {
             let msg = error
@@ -210,7 +245,11 @@ fn tool_result_item(
                 })
                 .or(output)
                 .unwrap_or_else(|| "tool failed".to_string());
-            FeedItem::ToolResult { content: msg, is_error: true }
+            FeedItem::ToolResult {
+                content: msg,
+                is_error: true,
+                tool_use_id,
+            }
         }
     }
 }
@@ -219,7 +258,9 @@ fn flush_assistant_buffer(acc: &mut GeminiAccumulator) -> Vec<FeedItem> {
     if acc.assistant_buffer.is_empty() {
         return vec![];
     }
-    vec![FeedItem::AssistantText(std::mem::take(&mut acc.assistant_buffer))]
+    vec![FeedItem::AssistantText(std::mem::take(
+        &mut acc.assistant_buffer,
+    ))]
 }
 
 #[cfg(test)]
@@ -250,7 +291,10 @@ mod tests {
         assert!(items.is_empty());
         assert_eq!(a.session_id.as_deref(), Some("test-session-123"));
         assert_eq!(a.model.as_deref(), Some("gemini-2.0-flash-exp"));
-        assert_eq!(extract_session_id(INIT_LINE).as_deref(), Some("test-session-123"));
+        assert_eq!(
+            extract_session_id(INIT_LINE).as_deref(),
+            Some("test-session-123")
+        );
     }
 
     #[test]
@@ -263,7 +307,10 @@ mod tests {
     fn user_message_is_dropped() {
         let mut a = acc();
         let items = parse_gemini_event(USER_MSG_LINE, &mut a);
-        assert!(items.is_empty(), "user echo dropped to avoid dup with prompt");
+        assert!(
+            items.is_empty(),
+            "user echo dropped to avoid dup with prompt"
+        );
     }
 
     #[test]
@@ -280,7 +327,10 @@ mod tests {
         // Result line should flush the buffer to a final AssistantText.
         let items3 = parse_gemini_event(RESULT_OK, &mut a);
         assert!(matches!(&items3[0], FeedItem::AssistantText(t) if t == "4!"));
-        assert!(matches!(items3.last().unwrap(), FeedItem::FinalResult { .. }));
+        assert!(matches!(
+            items3.last().unwrap(),
+            FeedItem::FinalResult { .. }
+        ));
     }
 
     #[test]
@@ -289,20 +339,33 @@ mod tests {
         let use_items = parse_gemini_event(TOOL_USE_LINE, &mut a);
         assert_eq!(use_items.len(), 1);
         match &use_items[0] {
-            FeedItem::ToolCall { name, input } => {
+            FeedItem::ToolCall {
+                name,
+                input,
+                tool_use_id,
+            } => {
                 assert_eq!(name, "Read");
                 assert_eq!(input["file_path"], "/path/to/file.txt");
+                assert_eq!(tool_use_id.as_deref(), Some("read-123"));
             }
             other => panic!("expected ToolCall, got {other:?}"),
         }
-        assert_eq!(a.tool_names_by_id.get("read-123").map(|s| s.as_str()), Some("Read"));
+        assert_eq!(
+            a.tool_names_by_id.get("read-123").map(|s| s.as_str()),
+            Some("Read")
+        );
 
         let res_items = parse_gemini_event(TOOL_RESULT_OK, &mut a);
         assert_eq!(res_items.len(), 1);
         match &res_items[0] {
-            FeedItem::ToolResult { content, is_error } => {
+            FeedItem::ToolResult {
+                content,
+                is_error,
+                tool_use_id,
+            } => {
                 assert_eq!(content, "File contents here");
                 assert!(!is_error);
+                assert_eq!(tool_use_id.as_deref(), Some("read-123"));
             }
             other => panic!("expected ToolResult, got {other:?}"),
         }
@@ -315,7 +378,9 @@ mod tests {
         let items = parse_gemini_event(TOOL_RESULT_ERR, &mut acc());
         assert_eq!(items.len(), 1);
         match &items[0] {
-            FeedItem::ToolResult { content, is_error } => {
+            FeedItem::ToolResult {
+                content, is_error, ..
+            } => {
                 assert!(*is_error);
                 assert!(content.contains("FILE_NOT_FOUND"));
                 assert!(content.contains("File not found"));
@@ -349,11 +414,21 @@ mod tests {
         let items = parse_gemini_event(RESULT_OK, &mut acc());
         assert_eq!(items.len(), 1);
         match &items[0] {
-            FeedItem::FinalResult { result, cost_usd, duration_ms, usage } => {
+            FeedItem::FinalResult {
+                result,
+                cost_usd,
+                duration_ms,
+                input_tokens,
+                output_tokens,
+                cache_read_input_tokens,
+                ..
+            } => {
                 assert_eq!(*duration_ms, Some(1200));
                 assert!(cost_usd.is_none(), "gemini emits no cost field");
-                assert!(usage.is_none(), "gemini usage not wired yet");
                 assert!(result.contains("100 tokens"));
+                assert_eq!(*input_tokens, Some(50));
+                assert_eq!(*output_tokens, Some(50));
+                assert_eq!(*cache_read_input_tokens, Some(0));
             }
             other => panic!("expected FinalResult, got {other:?}"),
         }
@@ -411,6 +486,12 @@ mod tests {
         // strict ordering), it still produces a sensible FeedItem.
         let items = parse_gemini_event(TOOL_RESULT_OK, &mut acc());
         assert_eq!(items.len(), 1);
-        assert!(matches!(&items[0], FeedItem::ToolResult { is_error: false, .. }));
+        assert!(matches!(
+            &items[0],
+            FeedItem::ToolResult {
+                is_error: false,
+                ..
+            }
+        ));
     }
 }

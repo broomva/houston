@@ -37,6 +37,7 @@ export function ChatPanel({
   toolLabels,
   isSpecialTool,
   renderToolResult,
+  renderPendingTool,
   processLabels,
   getThinkingMessage,
   renderMessageAvatar,
@@ -148,6 +149,7 @@ export function ChatPanel({
           toolLabels={toolLabels}
           isSpecialTool={isSpecialTool}
           renderToolResult={renderToolResult}
+          renderPendingTool={renderPendingTool}
           processLabels={processLabels}
           getThinkingMessage={getThinkingMessage}
           renderMessageAvatar={renderMessageAvatar}

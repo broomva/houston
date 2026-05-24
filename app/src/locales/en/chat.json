@@ -42,13 +42,11 @@
     "integration": "App integration",
     "alreadyConnected": "Already connected",
     "connected": "Connected",
-    "connecting": "Connecting...",
     "connect": "Connect",
-    "waitingToConnect": "Waiting for you to connect",
-    "reconnect": "Reconnect",
-    "verifiedToast": "{{name}} is connected",
-    "connectedFollowup": "I've connected {{name}}. Please continue.",
-    "followupFailed": "Couldn't tell the assistant that {{name}} is connected"
+    "verify": "I've connected",
+    "verifying": "Checking...",
+    "notVerified": "Couldn't verify yet, try again",
+    "verifiedToast": "{{name}} is connected"
   },
   "composioSignin": {
     "appName": "Integrations provider",
@@ -60,30 +58,7 @@
   "modelSelector": {
     "selectModel": "Select model",
     "model": "Model",
-    "notConnected": "Not connected",
-    "checking": "Checking...",
-    "effort": "Reasoning effort",
-    "effortLevels": {
-      "low": "Low",
-      "medium": "Medium",
-      "high": "High",
-      "xhigh": "Extra high",
-      "max": "Max"
-    },
-    "effortDescriptions": {
-      "low": "Fastest, lightest thinking.",
-      "medium": "Balanced speed and depth.",
-      "high": "Deeper thinking for harder work.",
-      "xhigh": "Best for complex, agentic tasks.",
-      "max": "Deepest thinking, no token limit."
-    },
-    "modelDescriptions": {
-      "gpt-5_5": "OpenAI's frontier model.",
-      "claude-sonnet-4-6": "Best balance of speed and quality.",
-      "claude-opus-4-8": "Latest Opus. Better alignment and agentic coding than 4.7.",
-      "claude-fable-5": "Most capable model. Costs 2x more credits than Opus 4.8.",
-      "claude-opus-4-7": "Previous flagship. Strong coding autonomy and complex reasoning."
-    }
+    "notConnected": "Not connected"
   },
   "contextMeter": {
     "title": "Context",
@@ -126,5 +101,14 @@
   },
   "filesUpdated_one": "1 file updated",
   "filesUpdated_other": "{{count}} files updated",
-  "contextCompacted": "Earlier conversation summarized so the chat can keep going"
+  "askUserQuestion": {
+    "submit": "Submit",
+    "submitting": "Submitting...",
+    "other": "Other",
+    "otherPlaceholder": "Type your answer",
+    "selectOne": "Choose one",
+    "selectMany": "Choose one or more",
+    "answered": "Answered",
+    "preparing": "Preparing question..."
+  }
 }
