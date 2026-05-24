@@ -18,6 +18,7 @@ pub mod gemini_home;
 pub mod gemini_parser;
 mod gemini_parser_state;
 mod gemini_runner;
+mod life_runner;
 pub mod manager;
 mod prompt_scratch;
 pub mod parser;

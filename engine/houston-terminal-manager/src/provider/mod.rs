@@ -24,6 +24,7 @@
 mod anthropic;
 pub(crate) mod anthropic_classify;
 mod gemini;
+mod life;
 mod openai;
 mod openai_classify;
 mod resolve;
@@ -194,6 +195,7 @@ const REGISTRY: &[&dyn ProviderAdapter] = &[
     &anthropic::ANTHROPIC,
     &openai::OPENAI,
     &gemini::GEMINI,
+    &life::LIFE,
 ];
 
 /// Default provider used when nothing else is configured. Stays Anthropic
