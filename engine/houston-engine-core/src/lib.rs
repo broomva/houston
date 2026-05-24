@@ -26,4 +26,4 @@ pub mod workspaces;
 pub mod worktree;
 
 pub use error::{CoreError, CoreResult};
-pub use state::EngineState;
+pub use state::{EngineState, McpSelf};
