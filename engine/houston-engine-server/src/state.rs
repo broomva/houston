@@ -78,6 +78,39 @@ impl ServerState {
             tracing::warn!("[boot] workspace provider migration failed: {e}");
         }
 
+        // Ensure every historical agent folder is a git working tree.
+        // The create-time `ensure_repo_sync` call only covers agents
+        // created after PR #55 landed; this walk fixes any agent dir
+        // that pre-dates the fix (or had `.git` removed out-of-band).
+        // Idempotent — second boot reports every dir as
+        // `AlreadyAGitRepo` and is a no-op walk. Per-agent failures
+        // are accumulated in the stats; the migration as a whole only
+        // returns an error if the workspaces.json read itself failed.
+        match houston_engine_core::agents::git_init_migration::migrate_ensure_agent_git_repos(
+            paths.docs(),
+        ) {
+            Ok(stats) => {
+                tracing::info!(
+                    target: "houston_engine_server::state",
+                    workspaces = stats.workspaces_scanned,
+                    agents = stats.agents_scanned,
+                    initialized = stats.initialized,
+                    already_a_repo = stats.already_a_repo,
+                    errors = stats.errors.len(),
+                    "[boot] agent git-init migration complete"
+                );
+                for err in &stats.errors {
+                    tracing::warn!(
+                        target: "houston_engine_server::state",
+                        "[boot] agent git-init migration error: {err}"
+                    );
+                }
+            }
+            Err(e) => {
+                tracing::warn!("[boot] agent git-init migration failed: {e}");
+            }
+        }
+
         let engine = EngineState::new(paths, Arc::new(events.clone()), db.clone())
             .with_app_prompts(
                 config.app_system_prompt.clone(),
