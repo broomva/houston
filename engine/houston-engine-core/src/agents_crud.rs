@@ -238,6 +238,27 @@ pub fn create(root: &Path, workspace_id: &str, req: CreateAgent) -> CoreResult<C
         f
     };
 
+    // Every agent folder must be a usable git working tree so the
+    // git_panel (and any future git-aware feature) works from frame 1.
+    // For freshly-created agents this is always a `git init`; for
+    // linked agents pointing at an existing folder, the user's
+    // intent is "leverage what's there" — if the folder is already a
+    // repo (including via a parent worktree) `ensure_repo_sync` is a
+    // no-op and the existing branch/history are preserved.
+    //
+    // Failure here is surfaced (per the no-silent-failures rule): if
+    // `git init` can't run, the user clicked "create agent" expecting
+    // a working agent surface, and they should hear about it now
+    // rather than discover it later when the git panel toasts.
+    let git_outcome = crate::git::ensure_repo_sync(&folder)?;
+    tracing::info!(
+        target: "houston_engine_core::agents_crud",
+        folder = %folder.display(),
+        is_linked,
+        outcome = ?git_outcome,
+        "agent folder git state ensured"
+    );
+
     fs::create_dir_all(folder.join(".agents/skills"))?;
     if let Some(installed_path) = req.installed_path.as_ref() {
         let packaged_skills = PathBuf::from(installed_path).join(".agents").join("skills");
@@ -452,6 +473,109 @@ mod tests {
         assert_eq!(renamed.name, "m");
         delete(d.path(), &ws_id, &res.agent.id).unwrap();
         assert!(list(d.path(), &ws_id).unwrap().is_empty());
+    }
+
+    #[test]
+    fn create_initializes_git_repo_for_fresh_agent() {
+        let d = TempDir::new().unwrap();
+        let ws_id = setup_ws(d.path());
+        let res = create(
+            d.path(),
+            &ws_id,
+            CreateAgent {
+                name: "git-fresh".into(),
+                config_id: "blank".into(),
+                color: None,
+                claude_md: None,
+                installed_path: None,
+                seeds: None,
+                existing_path: None,
+            },
+        )
+        .unwrap();
+        let agent_dir = d.path().join("alpha").join("git-fresh");
+        assert!(
+            agent_dir.join(".git").exists(),
+            "freshly-created agent folder must be a git repo (got: {})",
+            agent_dir.display()
+        );
+        assert!(
+            crate::git::is_repo_sync(&agent_dir),
+            "ensure_repo_sync semantic must hold for the agent folder"
+        );
+        assert_eq!(res.agent.name, "git-fresh");
+    }
+
+    #[test]
+    fn create_initializes_git_repo_for_linked_non_repo_folder() {
+        let d = TempDir::new().unwrap();
+        let ws_id = setup_ws(d.path());
+        // External folder with no .git.
+        let external = TempDir::new().unwrap();
+        std::fs::write(external.path().join("README.md"), "hi").unwrap();
+        assert!(
+            !external.path().join(".git").exists(),
+            "precondition: no .git"
+        );
+
+        create(
+            d.path(),
+            &ws_id,
+            CreateAgent {
+                name: "linked-no-git".into(),
+                config_id: "blank".into(),
+                color: None,
+                claude_md: None,
+                installed_path: None,
+                seeds: None,
+                existing_path: Some(external.path().to_string_lossy().to_string()),
+            },
+        )
+        .unwrap();
+
+        assert!(
+            external.path().join(".git").exists(),
+            "linked external folder lacking git must be init'd in place"
+        );
+    }
+
+    #[test]
+    fn create_preserves_existing_git_state_for_linked_repo() {
+        let d = TempDir::new().unwrap();
+        let ws_id = setup_ws(d.path());
+        let external = TempDir::new().unwrap();
+        // Pre-init the external repo on a non-default branch so a
+        // bug that re-initialized it would show up as a branch flip.
+        let pre_init = std::process::Command::new("git")
+            .args(["init", "-q", "-b", "trunk"])
+            .current_dir(external.path())
+            .output()
+            .expect("spawn git");
+        assert!(pre_init.status.success(), "pre-init failed");
+
+        create(
+            d.path(),
+            &ws_id,
+            CreateAgent {
+                name: "linked-git".into(),
+                config_id: "blank".into(),
+                color: None,
+                claude_md: None,
+                installed_path: None,
+                seeds: None,
+                existing_path: Some(external.path().to_string_lossy().to_string()),
+            },
+        )
+        .unwrap();
+
+        // Branch must remain `trunk`; if create() re-init'd the repo
+        // HEAD would now point at `main`.
+        let head =
+            std::fs::read_to_string(external.path().join(".git/HEAD")).expect("HEAD readable");
+        assert!(
+            head.trim().ends_with("refs/heads/trunk"),
+            "existing branch must be preserved, got: {head:?}"
+        );
     }
 
     #[test]
