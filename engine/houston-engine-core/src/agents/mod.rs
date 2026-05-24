@@ -15,6 +15,7 @@
 pub mod activity;
 pub mod config;
 pub mod files;
+pub mod git_init_migration;
 mod learnings_context;
 pub mod prompt;
 pub mod routine_runs;
