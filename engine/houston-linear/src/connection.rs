@@ -169,7 +169,12 @@ pub fn seed_layout(workspace_path: &Path) -> Result<(), LinearError> {
     }
 
     // Empty-array projection files — seed if absent.
-    for name in ["issues.json", "projects.json", "initiatives.json", "cycles.json"] {
+    for name in [
+        "issues.json",
+        "projects.json",
+        "initiatives.json",
+        "cycles.json",
+    ] {
         let path = root.join(name);
         if !path.exists() {
             std::fs::write(&path, b"[]")

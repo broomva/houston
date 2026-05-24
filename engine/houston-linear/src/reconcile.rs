@@ -75,7 +75,13 @@ pub async fn reconcile_issues(
 
     // Wrap the work so we ALWAYS clear in_flight on the way out
     // (even on error). Mirrors a try/finally.
-    let result = run_inner(workspace_path, http, access_token, state.issues_cursor.clone()).await;
+    let result = run_inner(
+        workspace_path,
+        http,
+        access_token,
+        state.issues_cursor.clone(),
+    )
+    .await;
 
     // Reload — run_inner may have updated state between snapshot and now.
     let mut final_state = SyncState::load(workspace_path).unwrap_or(state);
@@ -111,9 +117,14 @@ async fn run_inner(
     let mut max_updated_at: Option<String> = cursor.clone();
 
     loop {
-        let page =
-            issues::fetch_page(http, access_token, cursor.as_deref(), after.as_deref(), PAGE_SIZE)
-                .await?;
+        let page = issues::fetch_page(
+            http,
+            access_token,
+            cursor.as_deref(),
+            after.as_deref(),
+            PAGE_SIZE,
+        )
+        .await?;
 
         for node in &page.nodes {
             models::write_raw_issue(workspace_path, node)?;

@@ -8,42 +8,24 @@
 
 use crate::error::LinearError;
 use crate::queries::issues::IssueNode;
-use serde::{Deserialize, Serialize};
+use houston_engine_protocol::TrackerIssue;
 use std::path::{Path, PathBuf};
 
-/// On-disk projection of a Linear issue. Mirrors
-/// `ui/agent-schemas/src/tracker_issue.schema.json`. `Eq` intentionally
-/// omitted — `estimate: Option<f64>` makes Eq invalid (NaN != NaN);
-/// PartialEq is enough for the per-record dedupe at write time.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub struct ProjectedIssue {
-    pub provider: String,
-    pub provider_id: String,
-    pub identifier: String,
-    pub title: String,
-    pub description: Option<String>,
-    pub state: String,
-    pub state_type: Option<String>,
-    pub priority: Option<i64>,
-    pub estimate: Option<f64>,
-    pub team_id: String,
-    pub project_id: Option<String>,
-    pub project_milestone_id: Option<String>,
-    pub cycle_id: Option<String>,
-    pub parent_id: Option<String>,
-    pub assignee_id: Option<String>,
-    pub assigned_houston_agent_id: Option<String>,
-    pub label_ids: Vec<String>,
-    pub url: Option<String>,
-    pub created_at: String,
-    pub updated_at: String,
-    pub completed_at: Option<String>,
+/// Alias kept for readability inside the houston-linear crate. The
+/// canonical wire type lives in `houston-engine-protocol::TrackerIssue`
+/// (single source of truth used by both the engine route response and
+/// this on-disk persistence layer).
+pub type ProjectedIssue = TrackerIssue;
+
+/// Extension trait so callers can `ProjectedIssue::project(&node)`
+/// without importing the type via a free function. The trait body
+/// constructs the wire type directly.
+pub trait FromIssueNode {
+    fn project(node: &IssueNode) -> Self;
 }
 
-impl ProjectedIssue {
-    /// Project a cynic-typed [`IssueNode`] into the on-disk shape.
-    pub fn project(node: &IssueNode) -> Self {
+impl FromIssueNode for TrackerIssue {
+    fn project(node: &IssueNode) -> Self {
         Self {
             provider: "linear".to_string(),
             provider_id: node.id.inner().to_string(),
@@ -100,8 +82,8 @@ pub fn write_raw_issue(workspace_path: &Path, node: &IssueNode) -> Result<(), Li
     std::fs::create_dir_all(&dir)
         .map_err(|e| LinearError::Oauth(format!("create raw/issues dir: {e}")))?;
     let path = dir.join(format!("{}.json", node.id.inner()));
-    let json =
-        serde_json::to_string_pretty(&ProjectedIssue::project(node)).map_err(LinearError::Json)?;
+    let projected = <TrackerIssue as FromIssueNode>::project(node);
+    let json = serde_json::to_string_pretty(&projected).map_err(LinearError::Json)?;
     let tmp = path.with_extension("json.tmp");
     std::fs::write(&tmp, json).map_err(|e| LinearError::Oauth(format!("write raw issue: {e}")))?;
     std::fs::rename(&tmp, &path)
@@ -119,8 +101,7 @@ pub fn reproject_issues_from_raw(workspace_path: &Path) -> Result<usize, LinearE
         for entry in std::fs::read_dir(&dir)
             .map_err(|e| LinearError::Oauth(format!("read raw/issues dir: {e}")))?
         {
-            let entry =
-                entry.map_err(|e| LinearError::Oauth(format!("iter raw/issues: {e}")))?;
+            let entry = entry.map_err(|e| LinearError::Oauth(format!("iter raw/issues: {e}")))?;
             if entry.path().extension().and_then(|s| s.to_str()) != Some("json") {
                 continue;
             }

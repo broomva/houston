@@ -112,8 +112,7 @@ pub(crate) async fn run_connect_task(
     // Connected. Logged-not-surfaced if it errors — the user can hit
     // Sync-now manually, and the periodic reconciler (when wired) will
     // also catch up.
-    if let Err(e) =
-        crate::reconcile::reconcile_issues(&workspace_path, http(), &access_token).await
+    if let Err(e) = crate::reconcile::reconcile_issues(&workspace_path, http(), &access_token).await
     {
         tracing::warn!(
             workspace = %workspace_path.display(),

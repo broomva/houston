@@ -220,5 +220,4 @@ mod tests {
         assert!(body.contains("labelIds"));
         assert!(body.contains("pageInfo"));
     }
-
 }
