@@ -26,6 +26,7 @@ import type checkpoints from "../locales/en/checkpoints.json";
 import type git from "../locales/en/git.json";
 import type portable from "../locales/en/portable.json";
 import type context from "../locales/en/context.json";
+import type tile from "../locales/en/tile.json";
 import type timeline from "../locales/en/timeline.json";
 import type tracker from "../locales/en/tracker.json";
 
@@ -52,6 +53,7 @@ declare module "react-i18next" {
       git: typeof git;
       portable: typeof portable;
       context: typeof context;
+      tile: typeof tile;
       timeline: typeof timeline;
       tracker: typeof tracker;
     };
