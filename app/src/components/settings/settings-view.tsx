@@ -11,6 +11,7 @@ import {
   Keyboard,
   UserCircle,
   SlidersHorizontal,
+  Link2,
 } from "lucide-react";
 import { useWorkspaceStore } from "../../stores/workspaces";
 import { useUIStore } from "../../stores/ui";
@@ -25,6 +26,7 @@ type SettingsSectionId =
   | "workspaceContext"
   | "userContext"
   | "provider"
+  | "tracker"
   | "advanced"
   | "phone"
   | "shortcuts"
@@ -37,6 +39,7 @@ import {
   UserContextSection,
 } from "./sections/workspace-context";
 import { ProviderSection } from "./sections/provider";
+import { TrackerSection } from "./sections/tracker";
 import { TimezoneSection } from "./sections/timezone";
 import { LanguageSection } from "./sections/language";
 import { AppearanceSection } from "./sections/appearance";
@@ -82,6 +85,12 @@ export function SettingsView() {
         icon: UserCircle,
       },
       { id: "provider", label: t("settings:nav.provider"), icon: Bot },
+      {
+        id: "tracker",
+        label: t("settings:nav.tracker"),
+        icon: Link2,
+        beta: true,
+      },
       {
         id: "advanced",
         label: t("settings:nav.advanced"),
@@ -145,6 +154,7 @@ export function SettingsView() {
               </div>
             )}
             {activeVisible === "provider" && <ProviderSection />}
+            {activeVisible === "tracker" && <TrackerSection />}
             {activeVisible === "advanced" && <AdvancedSection />}
             {activeVisible === "phone" && <ConnectPhoneSection />}
             {activeVisible === "shortcuts" && <ShortcutsSection />}
