@@ -39,6 +39,7 @@ import integrationsEn from "../locales/en/integrations.json";
 import providersEn from "../locales/en/providers.json";
 import errorsEn from "../locales/en/errors.json";
 import eventsEn from "../locales/en/events.json";
+import gitEn from "../locales/en/git.json";
 import portableEn from "../locales/en/portable.json";
 import contextEn from "../locales/en/context.json";
 import trackerEn from "../locales/en/tracker.json";
@@ -57,6 +58,7 @@ import integrationsEs from "../locales/es/integrations.json";
 import providersEs from "../locales/es/providers.json";
 import errorsEs from "../locales/es/errors.json";
 import eventsEs from "../locales/es/events.json";
+import gitEs from "../locales/es/git.json";
 import portableEs from "../locales/es/portable.json";
 import contextEs from "../locales/es/context.json";
 import trackerEs from "../locales/es/tracker.json";
@@ -75,6 +77,7 @@ import integrationsPt from "../locales/pt/integrations.json";
 import providersPt from "../locales/pt/providers.json";
 import errorsPt from "../locales/pt/errors.json";
 import eventsPt from "../locales/pt/events.json";
+import gitPt from "../locales/pt/git.json";
 import portablePt from "../locales/pt/portable.json";
 import contextPt from "../locales/pt/context.json";
 import trackerPt from "../locales/pt/tracker.json";
@@ -133,6 +136,7 @@ const resources = {
     providers: providersEn,
     errors: errorsEn,
     events: eventsEn,
+    git: gitEn,
     portable: portableEn,
     context: contextEn,
     tracker: trackerEn,
@@ -153,6 +157,7 @@ const resources = {
     providers: providersEs,
     errors: errorsEs,
     events: eventsEs,
+    git: gitEs,
     portable: portableEs,
     context: contextEs,
     tracker: trackerEs,
@@ -173,6 +178,7 @@ const resources = {
     providers: providersPt,
     errors: errorsPt,
     events: eventsPt,
+    git: gitPt,
     portable: portablePt,
     context: contextPt,
     tracker: trackerPt,
@@ -213,6 +219,7 @@ void i18n
       "providers",
       "errors",
       "events",
+      "git",
       "portable",
       "context",
       "tracker",

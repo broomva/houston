@@ -51,7 +51,8 @@
     "events": "Eventos",
     "learnings": "Aprendizados",
     "configure": "Configurar",
-    "settings": "Configurações"
+    "settings": "Configurações",
+    "git": "Git"
   },
   "configure": {
     "projectContext": {
