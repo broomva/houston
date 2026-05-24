@@ -200,12 +200,20 @@ pub fn list_workspace_connections(
 /// `list_workspace_connections` call. PR D will clean those up
 /// after the new shape has soaked.
 pub fn disconnect_for_org(workspace_path: &Path, org_id: &str) -> Result<(), LinearError> {
-    // Remove keychain first — order matters so a partial failure
-    // leaves us with no dangling token even if the FS delete fails.
-    crate::keychain::delete(org_id)?;
+    // Only touch the keychain when the on-disk meta actually exists.
+    // Mirrors the legacy `disconnect` pattern: keychain ops are
+    // platform-bound (macOS `security` binary) and would fail
+    // spuriously on CI / Linux dev shells if we always called them.
+    // The "no meta on disk" branch is the idempotent-disconnect path
+    // used by tests + duplicate user clicks.
+    let meta_path = ConnectionMeta::path_for_workspace_org(workspace_path, org_id);
+    if meta_path.exists() {
+        // Keychain removed FIRST so a partial failure leaves no
+        // dangling token even if the FS delete errors out.
+        crate::keychain::delete(org_id)?;
+    }
 
-    let path = ConnectionMeta::path_for_workspace_org(workspace_path, org_id);
-    match std::fs::remove_file(&path) {
+    match std::fs::remove_file(&meta_path) {
         Ok(_) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(e) => Err(LinearError::Io(format!("delete {org_id}.json: {e}"))),
