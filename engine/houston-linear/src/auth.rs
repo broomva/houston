@@ -53,7 +53,13 @@ pub fn build_authorize_url(
         .append_pair("redirect_uri", redirect_uri)
         .append_pair("scope", &scope)
         .append_pair("state", state)
-        .append_pair("prompt", "consent");
+        .append_pair("prompt", "consent")
+        // Houston is an AppUser-mode OAuth app — Linear delegates work
+        // TO Houston via the AgentSession protocol. The `app:assignable`
+        // + `app:mentionable` scopes are AppUser-only and require
+        // `actor=app`; without it Linear rejects with "The scopes
+        // requested are not valid for this actor mode."
+        .append_pair("actor", "app");
     Ok(url)
 }
 
@@ -180,6 +186,11 @@ mod tests {
         assert!(s.contains("scope=read%2Cwrite%2Capp%3Aassignable"));
         assert!(s.contains("redirect_uri=http%3A%2F%2Flocalhost%3A19824%2Fcallback"));
         assert!(s.contains("prompt=consent"));
+        // AppUser mode — required for `app:assignable` + `app:mentionable`
+        // scopes Houston requests. Without this Linear rejects the
+        // authorize URL with "The scopes requested are not valid for
+        // this actor mode."
+        assert!(s.contains("actor=app"));
     }
 
     #[test]
