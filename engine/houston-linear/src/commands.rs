@@ -37,13 +37,19 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 /// OAuth scopes Houston requests at install.
-pub const REQUIRED_SCOPES: &[&str] = &[
-    "read",
-    "write",
-    "app:assignable",
-    "app:mentionable",
-    "webhook:write",
-];
+///
+/// `app:assignable` + `app:mentionable` are AppUser-mode scopes and
+/// require `actor=app` in the authorize URL (see
+/// `crate::auth::build_authorize_url`).
+///
+/// `webhook:write` was previously listed here but Linear rejects it
+/// under `actor=app` ("Invalid scope: webhook:write") — webhook URLs
+/// for AppUser apps are configured at the app-developer console
+/// (linear.app/<workspace>/settings/api), not per-user OAuth. The
+/// `webhooks` capability still appears in [`LINEAR_CAPABILITIES`]
+/// below because Houston DOES receive webhooks (just registered
+/// out-of-band).
+pub const REQUIRED_SCOPES: &[&str] = &["read", "write", "app:assignable", "app:mentionable"];
 
 /// Capabilities the engine declares on a freshly-connected Linear org.
 /// Mirrors the `capabilities` array in `tracker_connection.schema.json`.
@@ -316,6 +322,15 @@ mod tests {
             assert!(REQUIRED_SCOPES.contains(&"app:assignable"));
             assert!(REQUIRED_SCOPES.contains(&"app:mentionable"));
         }
+    }
+
+    #[test]
+    fn required_scopes_omits_webhook_write() {
+        // Linear rejects `webhook:write` under `actor=app` (AppUser
+        // mode). Webhook URLs for AppUser apps are configured at the
+        // app-developer console, not via OAuth grant. Keeping this
+        // pinned so a future refactor doesn't accidentally re-add it.
+        assert!(!REQUIRED_SCOPES.contains(&"webhook:write"));
     }
 
     #[test]
