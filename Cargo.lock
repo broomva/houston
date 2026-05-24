@@ -2656,6 +2656,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "houston-claude-hooks"
+version = "0.4.12"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tracing",
+]
+
+[[package]]
 name = "houston-claude-installer"
 version = "0.4.21"
 dependencies = [
@@ -2730,6 +2741,7 @@ dependencies = [
  "houston-agent-files",
  "houston-agent-portable",
  "houston-agents-conversations",
+ "houston-claude-hooks",
  "houston-claude-installer",
  "houston-cli-bundle",
  "houston-db",

@@ -49,6 +49,7 @@ import type {
   TimelineResponse,
   Checkpoint,
   CheckpointListResponse,
+  ClaudeHookStatus,
   CreateCheckpointRequest,
   DeleteCheckpointRequest,
   ListCheckpointsRequest,
@@ -676,6 +677,18 @@ export class HoustonClient {
   }
   deleteCheckpoint(req: DeleteCheckpointRequest): Promise<void> {
     return this.request("POST", "/checkpoints/delete", req);
+  }
+
+  // ---------- claude-hooks (Houston-managed Claude Code settings.json hooks) ----------
+
+  claudeHookStatus(): Promise<ClaudeHookStatus> {
+    return this.request("GET", "/claude-hooks/status");
+  }
+  installClaudeHooks(): Promise<ClaudeHookStatus> {
+    return this.request("POST", "/claude-hooks/install", {});
+  }
+  uninstallClaudeHooks(): Promise<ClaudeHookStatus> {
+    return this.request("POST", "/claude-hooks/uninstall", {});
   }
 
   // ---------- tunnel (mobile pairing + device-token management) ----------
