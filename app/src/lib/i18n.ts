@@ -42,6 +42,7 @@ import eventsEn from "../locales/en/events.json";
 import gitEn from "../locales/en/git.json";
 import portableEn from "../locales/en/portable.json";
 import contextEn from "../locales/en/context.json";
+import timelineEn from "../locales/en/timeline.json";
 import trackerEn from "../locales/en/tracker.json";
 import commonEs from "../locales/es/common.json";
 import setupEs from "../locales/es/setup.json";
@@ -61,6 +62,7 @@ import eventsEs from "../locales/es/events.json";
 import gitEs from "../locales/es/git.json";
 import portableEs from "../locales/es/portable.json";
 import contextEs from "../locales/es/context.json";
+import timelineEs from "../locales/es/timeline.json";
 import trackerEs from "../locales/es/tracker.json";
 import commonPt from "../locales/pt/common.json";
 import setupPt from "../locales/pt/setup.json";
@@ -80,6 +82,7 @@ import eventsPt from "../locales/pt/events.json";
 import gitPt from "../locales/pt/git.json";
 import portablePt from "../locales/pt/portable.json";
 import contextPt from "../locales/pt/context.json";
+import timelinePt from "../locales/pt/timeline.json";
 import trackerPt from "../locales/pt/tracker.json";
 
 // Pure locale value-logic lives in ./locale (DOM/JSON-free, unit-tested).
@@ -139,6 +142,7 @@ const resources = {
     git: gitEn,
     portable: portableEn,
     context: contextEn,
+    timeline: timelineEn,
     tracker: trackerEn,
   },
   es: {
@@ -160,6 +164,7 @@ const resources = {
     git: gitEs,
     portable: portableEs,
     context: contextEs,
+    timeline: timelineEs,
     tracker: trackerEs,
   },
   pt: {
@@ -181,6 +186,7 @@ const resources = {
     git: gitPt,
     portable: portablePt,
     context: contextPt,
+    timeline: timelinePt,
     tracker: trackerPt,
   },
 } as const;
@@ -222,6 +228,7 @@ void i18n
       "git",
       "portable",
       "context",
+      "timeline",
       "tracker",
     ],
     interpolation: { escapeValue: false }, // react already escapes

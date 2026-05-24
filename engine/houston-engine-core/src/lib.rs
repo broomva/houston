@@ -22,6 +22,8 @@ pub mod skills;
 pub mod state;
 pub mod store;
 pub mod worktree;
+pub mod timeline;
+pub mod worktree;
 pub mod workspace_context;
 pub mod workspaces;
 

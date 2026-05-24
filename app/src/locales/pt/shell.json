@@ -2,11 +2,8 @@
   "sidebar": {
     "missionControl": "Central de missões",
     "integrations": "Integrações",
-<<<<<<< HEAD
-=======
     "linear": "Linear",
     "commands": "Comandos",
->>>>>>> b4de6037 (feat(linear): C14 — dedicated Linear board view in agent shell (#37))
     "settings": "Configurações",
     "yourAgents": "Seus agentes",
     "selectWorkspace": "Escolha um espaço de trabalho",
