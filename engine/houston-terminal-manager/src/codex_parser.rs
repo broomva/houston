@@ -555,7 +555,9 @@ mod tests {
         let items = parse_codex_event(completed, &mut a);
         assert_eq!(items.len(), 1);
         match &items[0] {
-            FeedItem::ToolResult { content, is_error, .. } => {
+            FeedItem::ToolResult {
+                content, is_error, ..
+            } => {
                 assert!(content.contains("src/"));
                 assert!(!is_error);
             }
@@ -580,7 +582,9 @@ mod tests {
         let items = parse_codex_event(line, &mut acc());
         assert_eq!(items.len(), 1);
         match &items[0] {
-            FeedItem::ToolResult { content, is_error, .. } => {
+            FeedItem::ToolResult {
+                content, is_error, ..
+            } => {
                 assert!(content.contains("update: src/main.rs"));
                 assert!(!is_error);
             }

@@ -90,7 +90,8 @@ fn handle_event(event: GeminiEvent, acc: &mut GeminiAccumulator) -> Vec<FeedItem
             ..
         } => {
             let mut items = flush_assistant_buffer(acc);
-            acc.tool_names_by_id.insert(tool_id.clone(), tool_name.clone());
+            acc.tool_names_by_id
+                .insert(tool_id.clone(), tool_name.clone());
             let input = serde_json::to_value(&parameters).unwrap_or(serde_json::Value::Null);
             items.push(FeedItem::ToolCall {
                 name: tool_name,
@@ -378,9 +379,7 @@ mod tests {
         assert_eq!(items.len(), 1);
         match &items[0] {
             FeedItem::ToolResult {
-                content,
-                is_error,
-                ..
+                content, is_error, ..
             } => {
                 assert!(*is_error);
                 assert!(content.contains("FILE_NOT_FOUND"));

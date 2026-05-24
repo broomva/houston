@@ -118,9 +118,7 @@ impl PendingAskUserRegistry {
             rx
         };
         rx.await.map_err(|_| {
-            CoreError::Internal(
-                "ask_user: cancelled before parser emitted tool_use_id".into(),
-            )
+            CoreError::Internal("ask_user: cancelled before parser emitted tool_use_id".into())
         })
     }
 
@@ -295,15 +293,16 @@ mod tests {
         // and the handler unblocks with that id.
         let reg = PendingAskUserRegistry::new();
         let reg_for_task = reg.clone();
-        let handle = tokio::spawn(async move {
-            reg_for_task.mcp_invoked(SK).await.unwrap()
-        });
+        let handle = tokio::spawn(async move { reg_for_task.mcp_invoked(SK).await.unwrap() });
 
         // Give the spawned task time to register as a waiter.
         tokio::time::sleep(Duration::from_millis(10)).await;
         reg.parser_saw_tool_use(SK, "tu_late".into()).await;
 
-        let id = timeout(Duration::from_millis(100), handle).await.unwrap().unwrap();
+        let id = timeout(Duration::from_millis(100), handle)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(id, "tu_late");
     }
 
@@ -315,13 +314,21 @@ mod tests {
         let reg_for_task = reg.clone();
         let id_for_task = id.clone();
         let handle = tokio::spawn(async move {
-            reg_for_task.mcp_await_answer(SK, &id_for_task).await.unwrap()
+            reg_for_task
+                .mcp_await_answer(SK, &id_for_task)
+                .await
+                .unwrap()
         });
 
         tokio::time::sleep(Duration::from_millis(10)).await;
-        reg.submit_answer(SK, &id, answer("Balance Sheet")).await.unwrap();
+        reg.submit_answer(SK, &id, answer("Balance Sheet"))
+            .await
+            .unwrap();
 
-        let got = timeout(Duration::from_millis(100), handle).await.unwrap().unwrap();
+        let got = timeout(Duration::from_millis(100), handle)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(got, answer("Balance Sheet"));
     }
 
@@ -332,14 +339,16 @@ mod tests {
         let id = reg.mcp_invoked(SK).await.unwrap();
         let reg_for_task = reg.clone();
         let id_for_task = id.clone();
-        let handle = tokio::spawn(async move {
-            reg_for_task.mcp_await_answer(SK, &id_for_task).await
-        });
+        let handle =
+            tokio::spawn(async move { reg_for_task.mcp_await_answer(SK, &id_for_task).await });
 
         tokio::time::sleep(Duration::from_millis(10)).await;
         reg.cancel(SK).await;
 
-        let result = timeout(Duration::from_millis(100), handle).await.unwrap().unwrap();
+        let result = timeout(Duration::from_millis(100), handle)
+            .await
+            .unwrap()
+            .unwrap();
         assert!(result.is_err(), "expected Err on cancel, got {result:?}");
     }
 
@@ -354,7 +363,10 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(10)).await;
         reg.cancel(SK).await;
 
-        let result = timeout(Duration::from_millis(100), handle).await.unwrap().unwrap();
+        let result = timeout(Duration::from_millis(100), handle)
+            .await
+            .unwrap()
+            .unwrap();
         assert!(result.is_err(), "expected Err on cancel, got {result:?}");
     }
 
@@ -366,7 +378,10 @@ mod tests {
         let reg_for_task = reg.clone();
         let id_for_task = id.clone();
         let _handle = tokio::spawn(async move {
-            reg_for_task.mcp_await_answer(SK, &id_for_task).await.unwrap()
+            reg_for_task
+                .mcp_await_answer(SK, &id_for_task)
+                .await
+                .unwrap()
         });
         tokio::time::sleep(Duration::from_millis(10)).await;
 
@@ -389,13 +404,21 @@ mod tests {
         let reg = PendingAskUserRegistry::new();
         let reg_for_task = reg.clone();
         let handle = tokio::spawn(async move {
-            timeout(Duration::from_millis(40), reg_for_task.mcp_invoked("session-b")).await
+            timeout(
+                Duration::from_millis(40),
+                reg_for_task.mcp_invoked("session-b"),
+            )
+            .await
         });
         tokio::time::sleep(Duration::from_millis(5)).await;
-        reg.parser_saw_tool_use("session-a", "tu_for_a".into()).await;
+        reg.parser_saw_tool_use("session-a", "tu_for_a".into())
+            .await;
         // session-b should still be waiting (and eventually timeout).
         let outer = handle.await.unwrap();
-        assert!(outer.is_err(), "session-b should have timed out, got {outer:?}");
+        assert!(
+            outer.is_err(),
+            "session-b should have timed out, got {outer:?}"
+        );
     }
 
     #[tokio::test]
@@ -423,9 +446,8 @@ mod tests {
 
         let reg_for_task = reg.clone();
         let id_for_task = id.clone();
-        let _first = tokio::spawn(async move {
-            reg_for_task.mcp_await_answer(SK, &id_for_task).await
-        });
+        let _first =
+            tokio::spawn(async move { reg_for_task.mcp_await_answer(SK, &id_for_task).await });
         tokio::time::sleep(Duration::from_millis(10)).await;
 
         let second = reg.mcp_await_answer(SK, &id).await;

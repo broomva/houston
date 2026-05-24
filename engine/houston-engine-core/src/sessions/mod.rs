@@ -530,10 +530,20 @@ fn write_mcp_config_file(
     // CLI — only this engine reads the path back to delete it.
     let safe_key: String = session_key
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     let path = dir.join(format!("{safe_key}.json"));
-    let url = format!("{}/v1/mcp/{}/", mcp.base_url.trim_end_matches('/'), session_key);
+    let url = format!(
+        "{}/v1/mcp/{}/",
+        mcp.base_url.trim_end_matches('/'),
+        session_key
+    );
     // `timeout` raises the tool-call watchdog from the 60-second default to
     // 1 hour — humans answering a clarifying question may take a while.
     // (The 60-second first-byte fetch budget is separate; we beat that
