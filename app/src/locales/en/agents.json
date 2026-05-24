@@ -53,7 +53,8 @@
     "configure": "Configure",
     "settings": "Settings",
     "git": "Git",
-    "timeline": "Timeline"
+    "timeline": "Timeline",
+    "checkpoints": "Checkpoints"
   },
   "configure": {
     "projectContext": {

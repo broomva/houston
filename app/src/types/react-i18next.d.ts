@@ -22,6 +22,7 @@ import type integrations from "../locales/en/integrations.json";
 import type providers from "../locales/en/providers.json";
 import type errors from "../locales/en/errors.json";
 import type events from "../locales/en/events.json";
+import type checkpoints from "../locales/en/checkpoints.json";
 import type git from "../locales/en/git.json";
 import type portable from "../locales/en/portable.json";
 import type context from "../locales/en/context.json";
@@ -47,6 +48,7 @@ declare module "react-i18next" {
       providers: typeof providers;
       errors: typeof errors;
       events: typeof events;
+      checkpoints: typeof checkpoints;
       git: typeof git;
       portable: typeof portable;
       context: typeof context;

@@ -53,7 +53,8 @@
     "configure": "Configurar",
     "settings": "Configuración",
     "git": "Git",
-    "timeline": "Línea de tiempo"
+    "timeline": "Línea de tiempo",
+    "checkpoints": "Puntos de control"
   },
   "configure": {
     "projectContext": {
