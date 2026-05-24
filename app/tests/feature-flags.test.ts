@@ -193,6 +193,21 @@ test("FLAG_REGISTRY contains advanced.tile_layout with the expected shape", () =
   assert.equal(flag.graduationTarget, "permanent");
 });
 
+test("FLAG_REGISTRY contains advanced.claude_hooks with the expected shape", () => {
+  const flag = FLAG_REGISTRY["advanced.claude_hooks"];
+  assert.ok(flag, "advanced.claude_hooks must be registered (Phase 7 of RFC #248)");
+  assert.equal(flag.key, "advanced.claude_hooks");
+  assert.equal(flag.category, "advanced");
+  assert.equal(flag.default, false);
+  // Engine-enforced: install/uninstall write to ~/.claude/settings.json,
+  // so a UI-only gate would not stop a malicious caller.
+  assert.equal(flag.enforcementSurface, "engine");
+  assert.equal(flag.status, "beta");
+  assert.equal(flag.labelKey, "advanced.flags.claude_hooks.label");
+  assert.equal(flag.descriptionKey, "advanced.flags.claude_hooks.description");
+  assert.equal(flag.graduationTarget, "permanent");
+});
+
 test("every FLAG_REGISTRY entry has the required FlagDef fields", () => {
   for (const [key, flag] of Object.entries(FLAG_REGISTRY)) {
     assert.equal(flag.key, key, `key field must match registry key: ${key}`);

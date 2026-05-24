@@ -103,6 +103,10 @@
       "tile_layout": {
         "label": "Tile layout",
         "description": "Split the chat tab into two panes, the conversation on the left and the latest assistant response pinned on the right for easier reading."
+      },
+      "claude_hooks": {
+        "label": "Claude Code hooks",
+        "description": "Install lightweight hooks into the Claude Code CLI on your machine so every tool call it makes is appended to a JSONL file you can tail and inspect."
       }
     },
     "resetAll": "Reset all advanced settings",

@@ -9,6 +9,7 @@ pub mod agents;
 pub mod agents_crud;
 pub mod attachments;
 pub mod checkpoints;
+pub mod claude_hooks;
 pub mod conversations;
 pub mod error;
 pub mod git;

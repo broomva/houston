@@ -6,6 +6,7 @@ pub mod agents;
 pub mod attachments;
 pub mod checkpoints;
 pub mod claude;
+pub mod claude_hooks;
 pub mod composio;
 pub mod conversations;
 pub mod error;

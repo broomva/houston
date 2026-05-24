@@ -19,6 +19,8 @@ import {
   stringToFlag,
   type FlagDef,
 } from "../../../lib/featureFlags";
+import { FeatureGate } from "../../FeatureGate";
+import { ClaudeHooksPanel } from "../../claude-hooks/claude-hooks-panel";
 
 export function AdvancedSection() {
   const { t } = useTranslation("settings");
@@ -44,6 +46,10 @@ export function AdvancedSection() {
           ))}
         </ul>
       )}
+
+      <FeatureGate flag="advanced.claude_hooks">
+        <ClaudeHooksPanel />
+      </FeatureGate>
 
       <div className="mt-8 pt-6 border-t border-border">
         <button
