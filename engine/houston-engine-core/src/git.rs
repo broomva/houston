@@ -90,11 +90,55 @@ pub struct GitDiffResponse {
     pub diff: String,
 }
 
+/// Outcome of [`ensure_repo_sync`] — surfaced to callers so they can log
+/// or report which path was taken without re-querying the filesystem.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EnsureRepoOutcome {
+    /// `cwd` was already a git working tree (or inside one) — left untouched.
+    AlreadyAGitRepo,
+    /// `cwd` was not a repo; `git init -b main` (with a portable fallback)
+    /// was run and the directory now has a `.git/` on branch `main`.
+    Initialized,
+}
+
 // ─── Public API ────────────────────────────────────────────────────────
 
 /// `true` when `cwd` is inside a git working tree.
 pub async fn is_repo(cwd: &Path) -> bool {
     run_git(cwd, &["rev-parse", "--git-dir"]).await.is_ok()
+}
+
+/// Sync sibling of [`is_repo`] for blocking call sites (e.g. CRUD
+/// modules that aren't in async context yet). Wraps `std::process`,
+/// not `tokio::process`.
+pub fn is_repo_sync(cwd: &Path) -> bool {
+    run_git_sync(cwd, &["rev-parse", "--git-dir"]).is_ok()
+}
+
+/// Ensure `cwd` is a git working tree: no-op if it already is, otherwise
+/// `git init -b main`. This is the contract the agent-creation flow
+/// relies on so every new agent directory has a usable git surface
+/// (`git_panel`, `git status/log/diff`) from the first frame.
+///
+/// On older git binaries that don't support `-b` (pre-2.28, unlikely on
+/// any modern macOS/Linux but still seen on some long-LTS distros) the
+/// function falls back to plain `git init` + `git symbolic-ref HEAD
+/// refs/heads/main` so the resulting repo's initial branch is still
+/// `main`. The fallback is not error-swallowing — both legs surface
+/// their failure verbatim via [`CoreError::Internal`].
+pub fn ensure_repo_sync(cwd: &Path) -> CoreResult<EnsureRepoOutcome> {
+    if is_repo_sync(cwd) {
+        return Ok(EnsureRepoOutcome::AlreadyAGitRepo);
+    }
+    match run_git_sync(cwd, &["init", "-b", "main", "-q"]) {
+        Ok(_) => Ok(EnsureRepoOutcome::Initialized),
+        Err(_) => {
+            // Pre-2.28 fallback: bare init + manually point HEAD at main.
+            run_git_sync(cwd, &["init", "-q"])?;
+            run_git_sync(cwd, &["symbolic-ref", "HEAD", "refs/heads/main"])?;
+            Ok(EnsureRepoOutcome::Initialized)
+        }
+    }
 }
 
 pub async fn status(req: GitStatusRequest) -> CoreResult<GitStatusResponse> {
@@ -147,6 +191,24 @@ async fn run_git(cwd: &Path, args: &[&str]) -> CoreResult<String> {
         .current_dir(cwd)
         .output()
         .await
+        .map_err(|e| CoreError::Internal(format!("failed to spawn git: {e}")))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        return Err(CoreError::Internal(format!(
+            "git {args:?} failed: {stderr}"
+        )));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+/// Synchronous twin of [`run_git`] for blocking call sites — see
+/// [`ensure_repo_sync`]. Same error shapes so callers can swap between
+/// the two without changing their error handling.
+fn run_git_sync(cwd: &Path, args: &[&str]) -> CoreResult<String> {
+    let output = std::process::Command::new("git")
+        .args(args)
+        .current_dir(cwd)
+        .output()
         .map_err(|e| CoreError::Internal(format!("failed to spawn git: {e}")))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -339,6 +401,62 @@ mod tests {
     async fn is_repo_false_in_plain_tempdir() {
         let dir = TempDir::new().expect("tempdir");
         assert!(!is_repo(dir.path()).await);
+    }
+
+    #[test]
+    fn is_repo_sync_matches_async_on_plain_tempdir() {
+        let dir = TempDir::new().expect("tempdir");
+        assert!(!is_repo_sync(dir.path()));
+    }
+
+    #[test]
+    fn ensure_repo_sync_initializes_empty_dir_on_main_branch() {
+        let dir = TempDir::new().expect("tempdir");
+        let outcome = ensure_repo_sync(dir.path()).expect("init ok");
+        assert_eq!(outcome, EnsureRepoOutcome::Initialized);
+        assert!(is_repo_sync(dir.path()), "post-init must be a repo");
+        // Initial HEAD must point at `main` (the convention used by the
+        // agent UI and by `parse_status_porcelain_z`'s fresh-repo path).
+        let head = std::fs::read_to_string(dir.path().join(".git/HEAD"))
+            .expect("HEAD file present after init");
+        assert!(
+            head.trim().ends_with("refs/heads/main"),
+            "HEAD should point at main, got: {head:?}"
+        );
+    }
+
+    #[test]
+    fn ensure_repo_sync_is_noop_inside_existing_repo() {
+        let dir = TempDir::new().expect("tempdir");
+        // Pre-init on a non-main branch so we can prove ensure_repo_sync
+        // doesn't touch the existing config.
+        let out = StdCommand::new("git")
+            .args(["init", "-q", "-b", "trunk"])
+            .current_dir(dir.path())
+            .output()
+            .expect("spawn git");
+        assert!(out.status.success(), "pre-init failed");
+
+        let outcome = ensure_repo_sync(dir.path()).expect("noop ok");
+        assert_eq!(outcome, EnsureRepoOutcome::AlreadyAGitRepo);
+
+        let head =
+            std::fs::read_to_string(dir.path().join(".git/HEAD")).expect("HEAD file present");
+        assert!(
+            head.trim().ends_with("refs/heads/trunk"),
+            "branch must be preserved, got: {head:?}"
+        );
+    }
+
+    #[test]
+    fn ensure_repo_sync_is_idempotent() {
+        let dir = TempDir::new().expect("tempdir");
+        let first = ensure_repo_sync(dir.path()).expect("first init");
+        assert_eq!(first, EnsureRepoOutcome::Initialized);
+        let second = ensure_repo_sync(dir.path()).expect("second is noop");
+        assert_eq!(second, EnsureRepoOutcome::AlreadyAGitRepo);
+        let third = ensure_repo_sync(dir.path()).expect("third is noop");
+        assert_eq!(third, EnsureRepoOutcome::AlreadyAGitRepo);
     }
 
     #[tokio::test]
