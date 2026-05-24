@@ -1,0 +1,1856 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Workspace Operating Picture — Houston Board + KG Rethink</title>
+<!--
+---
+type: spec
+slug: workspace-operating-picture
+date: 2026-05-24
+status: proposal
+author: Carlos (broomva) via Claude session
+project: houston
+scope: ux, runtime, memory-engine
+supersedes: none
+related:
+  - knowledge-base/agent-manifest.md (Board section)
+  - knowledge-base/files-first.md
+  - knowledge-base/engine-protocol.md
+---
+-->
+<style>
+  :root {
+    --bg: #0e0e10;
+    --bg-2: #141418;
+    --fg: #e8e8ea;
+    --fg-soft: #c8c8d0;
+    --muted: #9a9aa1;
+    --muted-2: #6a6a76;
+    --accent: #7c5cff;
+    --accent-soft: #2b1f5a;
+    --good: #4ade80;
+    --warn: #fbbf24;
+    --bad: #f87171;
+    --info: #38bdf8;
+    --rule: #2a2a30;
+    --code-bg: #18181b;
+    --table-stripe: #141418;
+    --running: #3b82f6;
+    --needs-you: #fbbf24;
+    --done: #4ade80;
+    --error: #f87171;
+    --knowledge: #a78bfa;
+    --artifact: #22d3ee;
+    --routine: #2dd4bf;
+    --hazy: #5d5d65;
+  }
+  html, body {
+    background: var(--bg);
+    color: var(--fg);
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", sans-serif;
+    margin: 0;
+    padding: 0;
+  }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 48px 32px 120px; }
+  h1 { font-size: 30px; margin: 0 0 8px; letter-spacing: -0.01em; }
+  h2 { font-size: 20px; margin: 56px 0 14px; padding-top: 18px; border-top: 1px solid var(--rule); letter-spacing: -0.005em; }
+  h3 { font-size: 16px; margin: 28px 0 8px; color: var(--accent); }
+  h4 { font-size: 14px; margin: 18px 0 6px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  p, li { color: var(--fg-soft); }
+  strong { color: var(--fg); }
+  a { color: var(--accent); }
+  .meta { color: var(--muted); font-size: 13px; margin: 0 0 28px; padding-bottom: 16px; border-bottom: 1px solid var(--rule); }
+  .meta span { display: inline-block; margin-right: 18px; }
+  .meta b { color: var(--fg); font-weight: 500; }
+  .lede { font-size: 16px; color: var(--fg); margin: 8px 0 24px; }
+  .tag { display: inline-block; background: var(--accent-soft); color: var(--fg); border-radius: 4px; padding: 2px 8px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; margin-right: 6px; }
+  .tag.good { background: #16331f; color: var(--good); }
+  .tag.warn { background: #3a2d10; color: var(--warn); }
+  .tag.bad { background: #3b1a1a; color: var(--bad); }
+  .tag.info { background: #0f2a3b; color: var(--info); }
+  code, pre { font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace; font-size: 13px; }
+  code { background: var(--code-bg); padding: 1px 5px; border-radius: 3px; color: var(--fg); }
+  pre { background: var(--code-bg); padding: 14px 16px; border-radius: 6px; overflow-x: auto; border: 1px solid var(--rule); line-height: 1.5; }
+  pre code { background: transparent; padding: 0; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13.5px; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; text-transform: uppercase; font-size: 11px; letter-spacing: 0.06em; }
+  tbody tr:nth-child(even) { background: var(--table-stripe); }
+  ul, ol { padding-left: 22px; }
+  li { margin: 5px 0; }
+  .callout { background: var(--code-bg); border-left: 3px solid var(--accent); border-radius: 0 6px 6px 0; padding: 12px 16px; margin: 16px 0; }
+  .callout.warn { border-left-color: var(--warn); }
+  .callout.bad { border-left-color: var(--bad); }
+  .callout.good { border-left-color: var(--good); }
+  .callout p:first-child { margin-top: 0; }
+  .callout p:last-child { margin-bottom: 0; }
+  figure { margin: 28px 0; }
+  figure svg { width: 100%; height: auto; background: #0a0a0c; border: 1px solid var(--rule); border-radius: 8px; }
+  figcaption { color: var(--muted); font-size: 12px; margin-top: 10px; text-align: center; }
+  .toc {
+    background: var(--code-bg);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 14px 20px;
+    margin: 24px 0 32px;
+    font-size: 14px;
+  }
+  .toc h4 { margin: 0 0 8px; color: var(--muted); text-transform: uppercase; font-size: 11px; letter-spacing: 0.08em; }
+  .toc ol { margin: 0; padding-left: 22px; columns: 2; }
+  .toc li { margin: 4px 0; }
+  .toc a { color: var(--fg); text-decoration: none; }
+  .toc a:hover { color: var(--accent); }
+
+  /* SVG diagram styling */
+  .d-bg { fill: #0a0a0c; }
+  .d-panel { fill: #141418; stroke: #3a3a42; stroke-width: 1; }
+  .d-panel-strong { fill: #18181b; stroke: #4a4a52; stroke-width: 1.4; }
+  .d-card { fill: #1a1a22; stroke: #3a3a42; stroke-width: 1; rx: 8; }
+  .d-card-now { fill: #1a1a22; stroke: #fbbf24; stroke-width: 1.6; rx: 10; }
+  .d-card-running { fill: #1a1a22; stroke: #3b82f6; stroke-width: 1.6; rx: 10; }
+  .d-card-knowledge { fill: #1a1a22; stroke: #a78bfa; stroke-width: 1.2; rx: 8; }
+  .d-card-artifact { fill: #1a1a22; stroke: #22d3ee; stroke-width: 1.2; rx: 8; }
+  .d-card-routine { fill: #1a1a22; stroke: #2dd4bf; stroke-width: 1.2; rx: 8; }
+  .d-card-done { fill: #1a1a22; stroke: #2a2a30; stroke-width: 1; rx: 8; }
+  .d-card-hazy { fill: #14141a; stroke: #2a2a30; stroke-width: 1; rx: 8; opacity: 0.6; }
+  .d-label { fill: #e8e8ea; font: 600 13px -apple-system, sans-serif; }
+  .d-label-sm { fill: #e8e8ea; font: 500 11px -apple-system, sans-serif; }
+  .d-label-sub { fill: #9a9aa1; font: 11px "SF Mono", monospace; }
+  .d-label-mono { fill: #c8c8d0; font: 11px "SF Mono", monospace; }
+  .d-label-tiny { fill: #9a9aa1; font: 10px -apple-system, sans-serif; }
+  .d-title { fill: #e8e8ea; font: 700 16px -apple-system, sans-serif; letter-spacing: -0.005em; }
+  .d-section { fill: #9a9aa1; font: 500 11px -apple-system, sans-serif; text-transform: uppercase; letter-spacing: 0.08em; }
+  .d-edge { stroke: #6a6a76; stroke-width: 1.5; fill: none; }
+  .d-edge-strong { stroke: #a78bfa; stroke-width: 2; fill: none; }
+  .d-edge-dashed { stroke: #6a6a76; stroke-width: 1.5; stroke-dasharray: 4 3; fill: none; }
+  .d-button { fill: #2a2a30; stroke: #4a4a52; stroke-width: 1; rx: 14; }
+  .d-button-primary { fill: #e8e8ea; rx: 14; }
+  .d-button-primary-text { fill: #0d0d0d; font: 600 11px -apple-system, sans-serif; }
+  .d-button-text { fill: #e8e8ea; font: 500 11px -apple-system, sans-serif; }
+  .d-dot { stroke: none; }
+  .d-glow { filter: blur(2px); opacity: 0.4; }
+  .d-rank-1 { fill: #fbbf24; }
+  .d-rank-2 { fill: #fbbf24; opacity: 0.55; }
+  .d-rank-3 { fill: #4ade80; }
+  .d-rank-4 { fill: #a78bfa; }
+  .d-running { fill: #3b82f6; }
+  .d-needs { fill: #fbbf24; }
+  .d-done { fill: #4ade80; }
+  .d-error { fill: #f87171; }
+  .d-knowledge { fill: #a78bfa; }
+  .d-artifact { fill: #22d3ee; }
+  .d-hazy-text { fill: #5d5d65; }
+  .legend-row { font: 11px -apple-system, sans-serif; }
+  .legend-row text { fill: #c8c8d0; }
+  @media print {
+    html, body { background: #fff; color: #000; }
+    h1, h2, h3, h4, p, li, td, th { color: #000; }
+    figure svg { background: #fafafa; border-color: #ccc; }
+    .callout { background: #f5f5f5; }
+    pre, code { background: #f5f5f5; color: #000; }
+    .toc { background: #f5f5f5; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Workspace Operating Picture (WOP)</h1>
+<p class="meta">
+  <span><b>Status:</b> <span class="tag warn">Proposal</span></span>
+  <span><b>Date:</b> 2026-05-24</span>
+  <span><b>Type:</b> UX + Runtime + Memory Engine</span>
+  <span><b>Affects:</b> <code>app/</code>, <code>engine/houston-engine-core</code>, <code>engine/houston-skills</code>, <code>ui/board</code></span>
+</p>
+
+<p class="lede">
+A proposal to evolve Houston's Activity Board from a kanban over CRUD records into a <strong>Workspace Operating Picture</strong> — a single primary surface that renders the workspace as a living substrate. Same engine, new ontology. Adds the missing primitives identified in the AI-native assessment: typed Knowledge Graph, first-class Artifacts, agent-curated triage in NOW, and the memory engine that makes them honest at scale.
+</p>
+
+<nav class="toc">
+  <h4>Contents</h4>
+  <ol>
+    <li><a href="#problem">The problem with kanban</a></li>
+    <li><a href="#wop">The WOP — four regions</a></li>
+    <li><a href="#now">NOW — agent-curated triage</a></li>
+    <li><a href="#knowing">KNOWING — the substrate</a></li>
+    <li><a href="#kg-modes">KG rendering modes</a></li>
+    <li><a href="#kg-growth">KG growth curve</a></li>
+    <li><a href="#making">MAKING — artifacts in motion</a></li>
+    <li><a href="#doing">DOING — temporal worklog</a></li>
+    <li><a href="#memory-engine">Memory engine</a></li>
+    <li><a href="#implementation">Implementation sequence</a></li>
+    <li><a href="#tradeoffs">Tradeoffs &amp; open questions</a></li>
+    <li><a href="#decision-log">Decisions to make</a></li>
+  </ol>
+</nav>
+
+<!-- ============================================================ -->
+<h2 id="problem">1. The problem with kanban</h2>
+
+<p>
+Today's Board (<code>@houston-ai/board::AIBoard</code>) renders <code>.houston/activity/activity.json</code> entries as a 4-column kanban (<code>running</code> / <code>needs_you</code> / <code>done</code> / <code>error</code>). It is competent at what it shows. The problem is what it doesn't show — and what it makes invisible by being the primary surface.
+</p>
+
+<figure>
+<svg viewBox="0 0 1080 540" xmlns="http://www.w3.org/2000/svg">
+  <rect class="d-bg" width="1080" height="540"/>
+  <text class="d-title" x="32" y="40">Today's Board — what it surfaces (and what it hides)</text>
+  <text class="d-label-sub" x="32" y="62">@houston-ai/board::AIBoard · 4 columns over .houston/activity/activity.json</text>
+
+  <!-- Sidebar -->
+  <rect class="d-panel" x="32" y="84" width="160" height="430"/>
+  <text class="d-label" x="48" y="110">Sidebar</text>
+  <text class="d-label-sub" x="48" y="132">workspace</text>
+  <text class="d-label-sub" x="48" y="148">dashboard</text>
+  <text class="d-label-sub" x="48" y="164">connections</text>
+  <text class="d-label-sub" x="48" y="186">— agents —</text>
+  <text class="d-label-sub" x="48" y="206">Research [2]</text>
+  <text class="d-label-sub" x="48" y="222">Operations</text>
+  <text class="d-label-sub" x="48" y="238">+ New Agent</text>
+
+  <!-- Tab bar -->
+  <rect class="d-panel" x="208" y="84" width="840" height="36"/>
+  <text class="d-label-sm" x="224" y="106">Chat</text>
+  <text class="d-label-sm" x="270" y="106" style="fill:#a78bfa">Board</text>
+  <text class="d-label-sm" x="316" y="106">Skills</text>
+  <text class="d-label-sm" x="368" y="106">Files</text>
+  <text class="d-label-sm" x="420" y="106">Routines</text>
+  <text class="d-label-sm" x="486" y="106">Connections</text>
+
+  <!-- 4 columns -->
+  <g>
+    <!-- running -->
+    <rect class="d-panel" x="208" y="136" width="200" height="378"/>
+    <circle class="d-running" cx="224" cy="158" r="4"/>
+    <text class="d-label-sm" x="236" y="162">Running</text>
+    <rect class="d-card-running" x="220" y="178" width="176" height="68"/>
+    <text class="d-label-sm" x="232" y="200">Map competitors</text>
+    <text class="d-label-sub" x="232" y="218">Research</text>
+    <text class="d-label-sub" x="232" y="234">streaming…</text>
+
+    <!-- needs_you -->
+    <rect class="d-panel" x="416" y="136" width="200" height="378"/>
+    <circle class="d-needs" cx="432" cy="158" r="4"/>
+    <text class="d-label-sm" x="444" y="162">Needs you</text>
+    <rect class="d-card-now" x="428" y="178" width="176" height="68"/>
+    <text class="d-label-sm" x="440" y="200">Review NDA draft</text>
+    <text class="d-label-sub" x="440" y="218">Operations</text>
+    <text class="d-label-sub" x="440" y="234">4m ago</text>
+    <rect class="d-card-now" x="428" y="258" width="176" height="68"/>
+    <text class="d-label-sm" x="440" y="280">Series A peers?</text>
+    <text class="d-label-sub" x="440" y="298">Research</text>
+    <text class="d-label-sub" x="440" y="314">12m ago</text>
+
+    <!-- done -->
+    <rect class="d-panel" x="624" y="136" width="200" height="378"/>
+    <circle class="d-done" cx="640" cy="158" r="4"/>
+    <text class="d-label-sm" x="652" y="162">Done</text>
+    <rect class="d-card-done" x="636" y="178" width="176" height="56"/>
+    <text class="d-label-sm" x="648" y="200">Daily plan</text>
+    <text class="d-label-sub" x="648" y="218">2h ago</text>
+    <rect class="d-card-done" x="636" y="246" width="176" height="56"/>
+    <text class="d-label-sm" x="648" y="268">Inbox triage</text>
+    <text class="d-label-sub" x="648" y="286">yesterday</text>
+
+    <!-- error (folded into needs_you per current rule) -->
+    <rect class="d-panel" x="832" y="136" width="200" height="378"/>
+    <circle class="d-error" cx="848" cy="158" r="4"/>
+    <text class="d-label-sm" x="860" y="162">Error</text>
+    <text class="d-label-sub" x="848" y="200" style="font-style:italic">(rendered inside</text>
+    <text class="d-label-sub" x="848" y="218" style="font-style:italic">needs_you with red</text>
+    <text class="d-label-sub" x="848" y="236" style="font-style:italic">border)</text>
+  </g>
+
+  <!-- callouts -->
+  <g>
+    <line class="d-edge-dashed" x1="640" y1="380" x2="900" y2="430"/>
+    <text class="d-label-tiny" x="640" y="440" style="fill:#f87171">no notion of: artifacts in motion, what the agent knows,</text>
+    <text class="d-label-tiny" x="640" y="455" style="fill:#f87171">scheduled routines, integration health, agent-curated priority</text>
+    <text class="d-label-tiny" x="640" y="470" style="fill:#f87171">— user filters columns; agent doesn't rank attention</text>
+  </g>
+</svg>
+<figcaption>Today's Board surfaces session status. It does not surface state, memory, artifacts, or priority.</figcaption>
+</figure>
+
+<p>
+The 4-column structure is <strong>agent-time</strong>, not <strong>user-time</strong>. <code>needs_you</code> is a status the agent assigned to a session. There is no notion of <em>what the user should look at first</em> — by deal-impact, deadline, blockage. Triage is left entirely to the user's eyes.
+</p>
+
+<p>And eight load-bearing dimensions of workspace state are invisible:</p>
+
+<table>
+  <thead>
+    <tr><th>What the workspace actually contains</th><th>Where today's Board shows it</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Active sessions (the system's pulse)</td><td>Hidden behind "running" status</td></tr>
+    <tr><td>Pending model questions</td><td><code>needs_you</code> column ✓</td></tr>
+    <tr><td>Artifacts in motion (drafts, partial outputs)</td><td>Folded into card; not first-class</td></tr>
+    <tr><td>Recently settled artifacts</td><td>"Done" column (as activities, not artifacts)</td></tr>
+    <tr><td>What the workspace knows</td><td><strong>Nowhere</strong></td></tr>
+    <tr><td>Scheduled future work</td><td>Separate Routines tab</td></tr>
+    <tr><td>Integration health</td><td>Separate Connections tab</td></tr>
+    <tr><td>Agent state (alive / idle / sleeping)</td><td>Sidebar avatar glow only</td></tr>
+  </tbody>
+</table>
+
+<div class="callout">
+<p><strong>The trap:</strong> when the Board becomes the model (rather than one view of the model), Houston's session-first engine gets pulled toward project-tracker-shape over time. The kanban is the visible primary surface; the rest of the substrate atrophies behind tabs.</p>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="wop">2. The WOP — four regions</h2>
+
+<p>
+Replace (or peer to) the Board tab with a <strong>Workspace Operating Picture</strong>: one primary surface, four peer regions, each a different face of the workspace state. The kanban becomes one optional toggle inside <code>NOW</code> for users who think in cards.
+</p>
+
+<figure>
+<svg viewBox="0 0 1080 800" xmlns="http://www.w3.org/2000/svg">
+  <rect class="d-bg" width="1080" height="800"/>
+  <text class="d-title" x="32" y="40">Workspace Operating Picture — four regions on one surface</text>
+  <text class="d-label-sub" x="32" y="62">Sidebar &amp; tab bar omitted for clarity. Each region is collapsible. Agent-decided ordering decides emphasis.</text>
+
+  <!-- NOW -->
+  <rect class="d-panel-strong" x="32" y="84" width="1016" height="180"/>
+  <text class="d-section" x="48" y="106">NOW</text>
+  <text class="d-label-sub" x="80" y="106">— the workspace's current pulse · agent-curated triage</text>
+
+  <rect class="d-card-now" x="48" y="118" width="240" height="130"/>
+  <circle class="d-rank-1" cx="62" cy="138" r="5"/>
+  <text class="d-label-sm" x="74" y="142">NDA draft v3 ready</text>
+  <text class="d-label-sub" x="62" y="160">Operations · 4m ago</text>
+  <text class="d-label-tiny" x="62" y="178" style="fill:#fbbf24">blocks Friday deal close</text>
+  <rect class="d-button-primary" x="62" y="196" width="68" height="22"/>
+  <text class="d-button-primary-text" x="74" y="211">Review</text>
+  <rect class="d-button" x="138" y="196" width="56" height="22"/>
+  <text class="d-button-text" x="148" y="211">To lawyer</text>
+
+  <rect class="d-card" x="304" y="118" width="240" height="130"/>
+  <circle class="d-rank-2" cx="318" cy="138" r="5"/>
+  <text class="d-label-sm" x="330" y="142">Include Series A peers?</text>
+  <text class="d-label-sub" x="318" y="160">Research · 12m ago</text>
+  <text class="d-label-tiny" x="318" y="178">low impact · waiting</text>
+  <rect class="d-button" x="318" y="196" width="42" height="22"/>
+  <text class="d-button-text" x="330" y="211">Yes</text>
+  <rect class="d-button" x="368" y="196" width="62" height="22"/>
+  <text class="d-button-text" x="376" y="211">Just direct</text>
+
+  <rect class="d-card-routine" x="560" y="118" width="240" height="130"/>
+  <circle class="d-rank-3" cx="574" cy="138" r="5"/>
+  <text class="d-label-sm" x="586" y="142">Daily plan fires in 14h</text>
+  <text class="d-label-sub" x="574" y="160">Monday 9:00am</text>
+  <text class="d-label-tiny" x="574" y="178">routine · running 11d straight</text>
+  <rect class="d-button" x="574" y="196" width="48" height="22"/>
+  <text class="d-button-text" x="586" y="211">Pause</text>
+  <rect class="d-button" x="630" y="196" width="62" height="22"/>
+  <text class="d-button-text" x="640" y="211">Run now</text>
+
+  <rect class="d-card-knowledge" x="816" y="118" width="216" height="130"/>
+  <circle class="d-rank-4" cx="830" cy="138" r="5"/>
+  <text class="d-label-sm" x="842" y="142">Stripe pricing changed</text>
+  <text class="d-label-sub" x="830" y="160">spotted by Research</text>
+  <text class="d-label-tiny" x="830" y="178" style="fill:#a78bfa">passive: does this affect us?</text>
+  <rect class="d-button" x="830" y="196" width="76" height="22"/>
+  <text class="d-button-text" x="844" y="211">Investigate</text>
+  <rect class="d-button" x="912" y="196" width="62" height="22"/>
+  <text class="d-button-text" x="924" y="211">Dismiss</text>
+
+  <!-- KNOWING -->
+  <rect class="d-panel-strong" x="32" y="280" width="1016" height="160"/>
+  <text class="d-section" x="48" y="302">KNOWING</text>
+  <text class="d-label-sub" x="120" y="302">— what the workspace has learned · 47 facts · 23 concepts · 8 patterns</text>
+
+  <!-- left: recently learned -->
+  <rect class="d-card-knowledge" x="48" y="316" width="220" height="108"/>
+  <text class="d-label-sub" x="58" y="334">Recently learned</text>
+  <text class="d-label-sm" x="58" y="354">Stripe Connect v1 sunset</text>
+  <text class="d-label-tiny" x="58" y="370">2d ago · fact · 92%</text>
+  <text class="d-label-sm" x="58" y="390">SOC2 Type II readiness</text>
+  <text class="d-label-tiny" x="58" y="406">4d ago · concept · 78%</text>
+
+  <!-- middle: most-used -->
+  <rect class="d-card-knowledge" x="284" y="316" width="220" height="108"/>
+  <text class="d-label-sub" x="294" y="334">Most used this month</text>
+  <text class="d-label-sm" x="294" y="354">BANT qualification</text>
+  <text class="d-label-tiny" x="294" y="370">used 22× · concept</text>
+  <text class="d-label-sm" x="294" y="390">Tuesday meeting refusal</text>
+  <text class="d-label-tiny" x="294" y="406">used 18× · pattern</text>
+
+  <!-- right: hazy -->
+  <rect class="d-card-hazy" x="520" y="316" width="220" height="108"/>
+  <text class="d-label-sub" x="530" y="334">Hazy · 8 items</text>
+  <text class="d-label-sm" x="530" y="354" style="fill:#9a9aa1">Competitor C's pricing</text>
+  <text class="d-label-tiny" x="530" y="370">secondhand · 60% confidence</text>
+  <text class="d-label-sm" x="530" y="390" style="fill:#9a9aa1">Old voice draft</text>
+  <text class="d-label-tiny" x="530" y="406">superseded · review?</text>
+
+  <!-- right: topics callout -->
+  <rect class="d-card-knowledge" x="756" y="316" width="276" height="108" style="fill:#1a1521"/>
+  <text class="d-label-sub" x="766" y="334">Topics (auto-clustered)</text>
+  <text class="d-label-sm" x="766" y="354">📈 Pricing &amp; monetization · 18</text>
+  <text class="d-label-sm" x="766" y="374">📜 Legal &amp; contracts · 12</text>
+  <text class="d-label-sm" x="766" y="394">👥 Customers · 9</text>
+  <text class="d-label-tiny" x="766" y="414" style="fill:#a78bfa">[Browse all →]</text>
+
+  <!-- MAKING -->
+  <rect class="d-panel-strong" x="32" y="456" width="1016" height="140"/>
+  <text class="d-section" x="48" y="478">MAKING</text>
+  <text class="d-label-sub" x="106" y="478">— artifacts in motion · drafts being worked · partials streaming · settled</text>
+
+  <rect class="d-card-artifact" x="48" y="492" width="320" height="88"/>
+  <circle class="d-running d-glow" cx="60" cy="510" r="5"/>
+  <circle class="d-running" cx="60" cy="510" r="4"/>
+  <text class="d-label-sm" x="72" y="514">NDA draft v3</text>
+  <text class="d-label-sub" x="60" y="532">Operations · streaming</text>
+  <text class="d-label-tiny" x="60" y="552">v1 (Mon) → v2 (Wed) → v3 (just now)</text>
+  <rect class="d-button" x="60" y="560" width="50" height="18"/>
+  <text class="d-button-text" x="70" y="572">Open</text>
+  <rect class="d-button" x="118" y="560" width="72" height="18"/>
+  <text class="d-button-text" x="128" y="572">Compare</text>
+
+  <rect class="d-card-artifact" x="384" y="492" width="320" height="88"/>
+  <circle class="d-running" cx="396" cy="510" r="4"/>
+  <text class="d-label-sm" x="408" y="514">Competitor map</text>
+  <text class="d-label-sub" x="396" y="532">Research · building (14/24)</text>
+  <text class="d-label-tiny" x="396" y="552">found 14 peers · adding pricing column</text>
+  <rect class="d-button" x="396" y="560" width="76" height="18"/>
+  <text class="d-button-text" x="408" y="572">Open partial</text>
+
+  <rect class="d-card-artifact" x="720" y="492" width="312" height="88" style="opacity:0.85"/>
+  <circle class="d-done" cx="732" cy="510" r="4"/>
+  <text class="d-label-sm" x="744" y="514">Daily plan 2026-05-24</text>
+  <text class="d-label-sub" x="732" y="532">Operations · settled 2h ago</text>
+  <text class="d-label-tiny" x="732" y="552">no lineage · single-shot routine output</text>
+  <rect class="d-button" x="732" y="560" width="50" height="18"/>
+  <text class="d-button-text" x="742" y="572">Open</text>
+  <rect class="d-button" x="790" y="560" width="92" height="18"/>
+  <text class="d-button-text" x="802" y="572">Send as DM</text>
+
+  <!-- DOING -->
+  <rect class="d-panel-strong" x="32" y="612" width="1016" height="160"/>
+  <text class="d-section" x="48" y="634">DOING</text>
+  <text class="d-label-sub" x="98" y="634">— temporal worklog · past at left · scheduled at right · live in middle</text>
+
+  <!-- timeline bar -->
+  <rect x="48" y="650" width="240" height="14" fill="#22d3ee" opacity="0.18" rx="3"/>
+  <text class="d-label-tiny" x="48" y="678">last 7 days · 23 sessions · 18 artifacts · 5 routines fired</text>
+
+  <line class="d-edge" x1="48" y1="700" x2="1000" y2="700"/>
+  <line class="d-edge" x1="48" y1="694" x2="48" y2="706"/>
+  <line class="d-edge" x1="288" y1="694" x2="288" y2="706"/>
+  <line class="d-edge" x1="528" y1="694" x2="528" y2="706"/>
+  <line class="d-edge" x1="768" y1="694" x2="768" y2="706"/>
+  <line class="d-edge" x1="1000" y1="694" x2="1000" y2="706"/>
+  <text class="d-label-tiny" x="48" y="724">7d ago</text>
+  <text class="d-label-tiny" x="280" y="724">3d</text>
+  <text class="d-label-tiny" x="520" y="724">today</text>
+  <text class="d-label-tiny" x="752" y="724">+3d</text>
+  <text class="d-label-tiny" x="976" y="724">+11d</text>
+
+  <!-- markers -->
+  <circle class="d-done" cx="78" cy="700" r="3"/>
+  <circle class="d-done" cx="120" cy="700" r="3"/>
+  <circle class="d-done" cx="184" cy="700" r="3"/>
+  <circle class="d-done" cx="240" cy="700" r="3"/>
+  <circle class="d-done" cx="312" cy="700" r="3"/>
+  <circle class="d-done" cx="384" cy="700" r="3"/>
+  <circle class="d-done" cx="448" cy="700" r="3"/>
+  <circle class="d-running" cx="528" cy="700" r="6"/>
+  <text class="d-label-tiny" x="514" y="752" style="fill:#3b82f6">live</text>
+  <circle class="d-routine" cx="600" cy="700" r="3" style="fill:#2dd4bf"/>
+  <circle class="d-routine" cx="680" cy="700" r="3" style="fill:#2dd4bf"/>
+  <circle class="d-routine" cx="768" cy="700" r="3" style="fill:#2dd4bf"/>
+  <circle class="d-routine" cx="888" cy="700" r="3" style="fill:#2dd4bf"/>
+
+  <!-- legend -->
+  <g transform="translate(48,758)" class="legend-row">
+    <circle class="d-done" cx="0" cy="0" r="3"/>
+    <text x="8" y="3">past session</text>
+    <circle class="d-running" cx="120" cy="0" r="3"/>
+    <text x="128" y="3">live session</text>
+    <circle class="d-routine" cx="232" cy="0" r="3"/>
+    <text x="240" y="3">scheduled routine</text>
+  </g>
+</svg>
+<figcaption>WOP overview: NOW, KNOWING, MAKING, DOING as four collapsible regions on a single primary surface. The kanban becomes an optional toggle in NOW for users who prefer columns.</figcaption>
+</figure>
+
+<p>Each region answers a distinct question:</p>
+
+<table>
+<thead><tr><th>Region</th><th>Question it answers</th><th>Primitive(s) it surfaces</th></tr></thead>
+<tbody>
+<tr><td><strong>NOW</strong></td><td>What does the workspace want from me, right now, ordered by what matters?</td><td>Sessions (live), <code>needs_you</code> items, agent-spotted observations, imminent routines, errors</td></tr>
+<tr><td><strong>KNOWING</strong></td><td>What has the workspace learned, and how do I look at it?</td><td>Knowledge graph (concept/pattern/fact/entity), provenance links</td></tr>
+<tr><td><strong>MAKING</strong></td><td>What artifacts are in motion, and where are they in their lifecycle?</td><td>Artifacts (typed, with lineage and lifecycle), file-change events</td></tr>
+<tr><td><strong>DOING</strong></td><td>What is the temporal shape of work — recent, live, scheduled?</td><td>Session timeline, routine runs, scheduled routines</td></tr>
+</tbody>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="now">3. NOW — agent-curated triage</h2>
+
+<p>
+The single most important change. Items in <code>NOW</code> are <strong>ranked by the model</strong>, not by column status. The model reads <code>WORKSPACE.md</code>, <code>USER.md</code>, the knowledge graph, and active <code>needs_you</code> items, then produces a triage with explicit reasoning attached to each item.
+</p>
+
+<figure>
+<svg viewBox="0 0 1080 560" xmlns="http://www.w3.org/2000/svg">
+  <rect class="d-bg" width="1080" height="560"/>
+  <text class="d-title" x="32" y="40">NOW — triage card anatomy</text>
+  <text class="d-label-sub" x="32" y="62">Each card carries: rank, title, source agent + age, agent reasoning, direct verbs.</text>
+
+  <!-- Rank-1 card detail -->
+  <rect class="d-card-now" x="32" y="92" width="500" height="200"/>
+  <circle class="d-rank-1" cx="56" cy="120" r="7"/>
+  <text class="d-label" x="74" y="124">NDA draft v3 ready for your review</text>
+  <text class="d-label-sub" x="56" y="148">Operations agent · 4 min ago · session ses_8f3a</text>
+
+  <line class="d-edge-dashed" x1="56" y1="162" x2="508" y2="162"/>
+
+  <text class="d-label-sub" x="56" y="186" style="fill:#fbbf24">why this is ranked first</text>
+  <text class="d-label-mono" x="56" y="206">deal close blocked Friday (WORKSPACE.md)</text>
+  <text class="d-label-mono" x="56" y="224">+ Acme Corp blocking review (entity link)</text>
+  <text class="d-label-mono" x="56" y="242">+ user-stated deadline in USER.md</text>
+
+  <rect class="d-button-primary" x="56" y="258" width="98" height="26"/>
+  <text class="d-button-primary-text" x="78" y="276">Review draft</text>
+  <rect class="d-button" x="164" y="258" width="98" height="26"/>
+  <text class="d-button-text" x="180" y="276">Send to lawyer</text>
+  <rect class="d-button" x="272" y="258" width="104" height="26"/>
+  <text class="d-button-text" x="288" y="276">Ask Operations</text>
+  <text class="d-label-tiny" x="392" y="276" style="fill:#9a9aa1">[Dismiss]</text>
+
+  <!-- annotations -->
+  <g>
+    <line class="d-edge-dashed" x1="58" y1="120" x2="588" y2="120"/>
+    <text class="d-label-tiny" x="592" y="124" style="fill:#fbbf24">RANK 1 — colored dot = priority tier</text>
+    <text class="d-label-tiny" x="592" y="140" style="fill:#a78bfa">(deterministic guarantee: any error always rank 1)</text>
+
+    <line class="d-edge-dashed" x1="220" y1="148" x2="640" y2="148"/>
+    <text class="d-label-tiny" x="644" y="152">PROVENANCE — source agent + session click-through</text>
+
+    <line class="d-edge-dashed" x1="280" y1="206" x2="640" y2="206"/>
+    <text class="d-label-tiny" x="644" y="210" style="fill:#a78bfa">AGENT REASONING — why ranked, sources cited</text>
+    <text class="d-label-tiny" x="644" y="226">monospace = clickable provenance links</text>
+
+    <line class="d-edge-dashed" x1="380" y1="270" x2="640" y2="270"/>
+    <text class="d-label-tiny" x="644" y="274">DIRECT VERBS — agent proposes specific actions</text>
+    <text class="d-label-tiny" x="644" y="290">not "open chat to clarify"</text>
+  </g>
+
+  <!-- Passive observation card -->
+  <rect class="d-card-knowledge" x="32" y="316" width="500" height="200"/>
+  <circle class="d-rank-4" cx="56" cy="344" r="7"/>
+  <text class="d-label" x="74" y="348">Stripe pricing changed — does this affect our model?</text>
+  <text class="d-label-sub" x="56" y="372">spotted by Research · in this morning's session · KG hit</text>
+
+  <line class="d-edge-dashed" x1="56" y1="386" x2="508" y2="386"/>
+
+  <text class="d-label-sub" x="56" y="410" style="fill:#a78bfa">why this is ranked here</text>
+  <text class="d-label-mono" x="56" y="430">stripe-volume-pricing (concept · 7× use)</text>
+  <text class="d-label-mono" x="56" y="448">linked to our-pricing-strategy</text>
+  <text class="d-label-mono" x="56" y="466">passive observation · no explicit needs_you</text>
+
+  <rect class="d-button" x="56" y="482" width="84" height="26"/>
+  <text class="d-button-text" x="70" y="500">Investigate</text>
+  <rect class="d-button" x="150" y="482" width="80" height="26"/>
+  <text class="d-button-text" x="164" y="500">Dismiss</text>
+  <rect class="d-button" x="240" y="482" width="124" height="26"/>
+  <text class="d-button-text" x="256" y="500">Update knowledge</text>
+
+  <g>
+    <line class="d-edge-dashed" x1="58" y1="344" x2="588" y2="344"/>
+    <text class="d-label-tiny" x="592" y="348" style="fill:#a78bfa">RANK 4 — passive observation tier</text>
+    <text class="d-label-tiny" x="592" y="364">agent surfaced this · no user action required</text>
+
+    <line class="d-edge-dashed" x1="370" y1="396" x2="640" y2="396"/>
+    <text class="d-label-tiny" x="644" y="400">SOURCE — agent surfaced from running session,</text>
+    <text class="d-label-tiny" x="644" y="416">not from a user action — net-new behavior</text>
+
+    <line class="d-edge-dashed" x1="280" y1="448" x2="640" y2="448"/>
+    <text class="d-label-tiny" x="644" y="452">KG LINKS — clickable into KNOWING entity pages</text>
+  </g>
+</svg>
+<figcaption>NOW triage card anatomy. Rank dot, agent reasoning, provenance links, direct verbs. Rank-4 cards are passive observations — agent-spotted, no explicit needs_you flag.</figcaption>
+</figure>
+
+<h3>Ranking model</h3>
+
+<p>Ranking is a hybrid: <strong>agent-curated with deterministic guarantees</strong>.</p>
+
+<table>
+<thead><tr><th>Tier</th><th>What</th><th>Determined by</th></tr></thead>
+<tbody>
+<tr><td>R1 (amber, urgent)</td><td>Errors, blocked-on-deadline items, items the user has explicitly flagged urgent</td><td>Deterministic: errors auto-promote; deadline within 24h auto-promotes</td></tr>
+<tr><td>R2 (amber soft)</td><td>Standard <code>needs_you</code> items, agent-prioritized</td><td>Model-ranked based on context</td></tr>
+<tr><td>R3 (green)</td><td>Imminent scheduled routines (next 24h)</td><td>Deterministic: routine fire time</td></tr>
+<tr><td>R4 (purple)</td><td>Passive observations the agent surfaced — knowledge-graph hits, suggestions, spotted-during-other-work items</td><td>Model-curated, optional</td></tr>
+</tbody>
+</table>
+
+<p>
+The deterministic guarantees are load-bearing: <strong>no <code>needs_you</code> item is hidden by ranking</strong>, errors always appear at R1, the model can only re-order within tiers and surface R4 items. Users can disable R4 entirely ("Houston's attention" slider: terse / balanced / proactive).
+</p>
+
+<div class="callout">
+<p><strong>The fourth rank is the agentic-native move.</strong> R4 items have no equivalent in today's Board because the kanban only renders Activity records. R4 items are things the agent <em>noticed during other work</em> and decided the user might want to know. Calibration is everything — too eager is notification spam; too quiet is invisible value.</p>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="knowing">4. KNOWING — the substrate, in four lenses</h2>
+
+<p>
+Knowledge has to feel like <strong>memory</strong>, not a database. Memory is sparse when fresh, dense in places you care about, hazy at the edges, triggered by association. The KG surface must match those qualities at any scale from 0 to 1000+ entities.
+</p>
+
+<h3>The on-disk substrate</h3>
+
+<p>
+Promote learnings from a flat bullet list to a typed entity space. Per-agent learnings stay (working memory); workspace KG is the new layer (long-term semantic memory shared across agents in the workspace).
+</p>
+
+<pre><code>~/.houston/workspaces/{Workspace}/
+  WORKSPACE.md            # narrative context (already exists)
+  USER.md                 # about the human (already exists)
+  knowledge/
+    concept/&lt;slug&gt;.md    # named ideas
+    pattern/&lt;slug&gt;.md    # repeated behaviors / observations
+    fact/&lt;slug&gt;.md       # claims w/ provenance
+    entity/&lt;slug&gt;.md     # people, companies, products
+    index.json            # built index for fast lookup (auto-generated)
+    .schema.json          # seeded on first launch
+</code></pre>
+
+<p>Each entity is markdown with YAML frontmatter, identical in spirit to the broomva-workspace pattern at <code>research/entities/</code>:</p>
+
+<pre><code>---
+type: concept
+slug: stripe-volume-pricing
+title: "Stripe volume pricing"
+confidence: 0.85
+first_learned: 2026-05-12
+last_touched: 2026-05-24
+use_count: 7
+sources:
+  - session: ses_8f3a...
+  - session: ses_b21c...
+  - file: docs/pricing-research.md
+links:
+  - concept/pricing-strategy
+  - entity/stripe
+  - fact/our-current-stripe-tier
+status: active             # active | archived | contradicted
+contradicts: null          # or another slug
+---
+
+# Stripe volume pricing
+
+Stripe applies volume discounts above $1M ARR. The discount is
+negotiated, not published. Founders report 15-25% off list at
+that tier...
+</code></pre>
+
+<!-- ============================================================ -->
+<h2 id="kg-modes">5. KG rendering — four lenses</h2>
+
+<p>The same on-disk substrate is rendered through four lenses. The agent decides which lens to default to based on KG scale and current user context.</p>
+
+<h3>Lens A — Contextual surfacing (default, always-on)</h3>
+
+<p>
+Knowledge appears inline where it's relevant — in chat, in artifact panels, in <code>needs_you</code> items. Users encounter the substrate by doing work, not by browsing.
+</p>
+
+<figure>
+<svg viewBox="0 0 1080 520" xmlns="http://www.w3.org/2000/svg">
+  <rect class="d-bg" width="1080" height="520"/>
+  <text class="d-title" x="32" y="40">Lens A — contextual surfacing in chat &amp; artifacts</text>
+  <text class="d-label-sub" x="32" y="62">Knowledge chips inline · click → entity opens in side panel · provenance always visible</text>
+
+  <!-- Chat panel -->
+  <rect class="d-panel" x="32" y="92" width="660" height="404"/>
+  <text class="d-section" x="48" y="114">CHAT — Operations agent</text>
+
+  <!-- user msg -->
+  <rect x="320" y="132" width="356" height="44" rx="20" fill="#f4f4f4" opacity="0.06" stroke="#3a3a42" stroke-width="0.5"/>
+  <text class="d-label-sm" x="334" y="160">What's our negotiating leverage on Stripe pricing?</text>
+
+  <!-- assistant -->
+  <text class="d-label-mono" x="48" y="200">Assistant</text>
+  <text class="d-label-sm" x="48" y="222">For pricing, you're at the $1.2M ARR threshold where Stripe's</text>
+  <text class="d-label-sm" x="48" y="240">volume tier kicks in.</text>
+
+  <!-- knowledge chip 1 -->
+  <rect class="d-card-knowledge" x="48" y="252" width="280" height="40" style="rx:6"/>
+  <text class="d-label-sm" x="62" y="270">📘 Stripe volume pricing</text>
+  <text class="d-label-tiny" x="62" y="286">last touched 2d ago · 7 sessions · 85% conf</text>
+
+  <text class="d-label-sm" x="48" y="318">You can probably negotiate 18-22% off list at this tier.</text>
+
+  <!-- knowledge chip 2 -->
+  <rect class="d-card-knowledge" x="48" y="332" width="320" height="40" style="rx:6"/>
+  <text class="d-label-sm" x="62" y="350">📌 Source: ses_8f3a — your Stripe call on May 12</text>
+  <text class="d-label-tiny" x="62" y="366">click to replay session</text>
+
+  <text class="d-label-sm" x="48" y="398">Acme Corp's CFO is the right contact —</text>
+
+  <!-- entity chip -->
+  <rect class="d-card-knowledge" x="48" y="412" width="220" height="40" style="rx:6"/>
+  <text class="d-label-sm" x="62" y="430">👤 Acme Corp · entity</text>
+  <text class="d-label-tiny" x="62" y="446">12 mentions · last verified Mar</text>
+
+  <text class="d-label-sm" x="280" y="436">they handled the Series A negotiation similarly.</text>
+
+  <!-- Side panel (opens on chip click) -->
+  <rect class="d-panel-strong" x="708" y="92" width="340" height="404"/>
+  <text class="d-section" x="724" y="114">ENTITY PANEL (on chip click)</text>
+  <text class="d-label" x="724" y="138">📘 Stripe volume pricing</text>
+  <text class="d-label-sub" x="724" y="156">concept · 85% confidence · 7 uses</text>
+
+  <line class="d-edge" x1="724" y1="170" x2="1032" y2="170"/>
+
+  <text class="d-label-sm" x="724" y="194">Stripe applies volume discounts above</text>
+  <text class="d-label-sm" x="724" y="212">$1M ARR. Discount is negotiated, not</text>
+  <text class="d-label-sm" x="724" y="230">published. Founders report 15-25% off</text>
+  <text class="d-label-sm" x="724" y="248">list at that tier.</text>
+
+  <line class="d-edge" x1="724" y1="270" x2="1032" y2="270"/>
+
+  <text class="d-label-sub" x="724" y="292">Sources (3)</text>
+  <text class="d-label-mono" x="724" y="310" style="fill:#a78bfa">ses_8f3a · May 12 Stripe call</text>
+  <text class="d-label-mono" x="724" y="326" style="fill:#a78bfa">ses_b21c · May 18 pricing research</text>
+  <text class="d-label-mono" x="724" y="342" style="fill:#a78bfa">docs/pricing-research.md</text>
+
+  <text class="d-label-sub" x="724" y="368">Linked (3)</text>
+  <text class="d-label-mono" x="724" y="386" style="fill:#a78bfa">→ pricing-strategy</text>
+  <text class="d-label-mono" x="724" y="402" style="fill:#a78bfa">→ stripe (entity)</text>
+  <text class="d-label-mono" x="724" y="418" style="fill:#a78bfa">→ our-current-stripe-tier</text>
+
+  <rect class="d-button" x="724" y="442" width="58" height="22"/>
+  <text class="d-button-text" x="734" y="457">Edit</text>
+  <rect class="d-button" x="790" y="442" width="76" height="22"/>
+  <text class="d-button-text" x="802" y="457">Archive</text>
+  <rect class="d-button" x="874" y="442" width="106" height="22"/>
+  <text class="d-button-text" x="888" y="457">Open in editor</text>
+</svg>
+<figcaption>Lens A: knowledge appears as inline chips during conversations. Click any chip → entity panel slides in from right with body, sources, and links. The substrate is felt through work, not browsed.</figcaption>
+</figure>
+
+<h3>Lens B — Wiki-style browser (KNOWING band primary)</h3>
+
+<p>For users who want to look. Each entity has a page. Linked entities. Sessions that referenced it. Artifacts that used it. Direct edit.</p>
+
+<figure>
+<svg viewBox="0 0 1080 560" xmlns="http://www.w3.org/2000/svg">
+  <rect class="d-bg" width="1080" height="560"/>
+  <text class="d-title" x="32" y="40">Lens B — wiki-style entity browser</text>
+  <text class="d-label-sub" x="32" y="62">List view organized by recency × use-count × confidence. Search overlay on top. Edit-in-place.</text>
+
+  <!-- search bar -->
+  <rect class="d-panel" x="32" y="92" width="660" height="36"/>
+  <text class="d-label-sub" x="48" y="114">🔍  search knowledge…</text>
+  <rect class="d-button" x="700" y="92" width="92" height="36"/>
+  <text class="d-button-text" x="720" y="115">Recent ▾</text>
+  <text class="d-label-sub" x="808" y="115">47 facts · 23 concepts · 8 patterns · 14 entities</text>
+
+  <!-- Recently touched -->
+  <text class="d-section" x="32" y="160">RECENTLY TOUCHED</text>
+  <rect class="d-card-knowledge" x="32" y="172" width="328" height="64"/>
+  <text class="d-label-sm" x="46" y="194">📘 Stripe volume pricing</text>
+  <text class="d-label-sub" x="46" y="212">concept · 2d ago · used 7×</text>
+  <text class="d-label-tiny" x="46" y="228">linked: pricing-strategy, stripe, our-current-stripe-tier</text>
+
+  <rect class="d-card-knowledge" x="376" y="172" width="328" height="64"/>
+  <text class="d-label-sm" x="390" y="194">📌 Our LTV/CAC ratio</text>
+  <text class="d-label-sub" x="390" y="212">fact · 3d ago · used 4×</text>
+  <text class="d-label-tiny" x="390" y="228">last value: 4.2 (Q1 2026)</text>
+
+  <rect class="d-card-knowledge" x="720" y="172" width="328" height="64"/>
+  <text class="d-label-sm" x="734" y="194">👤 Acme Corp</text>
+  <text class="d-label-sub" x="734" y="212">entity · 5d ago · used 3×</text>
+  <text class="d-label-tiny" x="734" y="228">CFO contact verified Mar</text>
+
+  <!-- Most used -->
+  <text class="d-section" x="32" y="276">MOST USED THIS MONTH</text>
+  <rect class="d-card-knowledge" x="32" y="288" width="328" height="64"/>
+  <text class="d-label-sm" x="46" y="310">📘 BANT qualification</text>
+  <text class="d-label-sub" x="46" y="328">concept · used 22× · 91% conf</text>
+
+  <rect class="d-card-knowledge" x="376" y="288" width="328" height="64"/>
+  <text class="d-label-sm" x="390" y="310">⚡ Tuesday meeting refusal</text>
+  <text class="d-label-sub" x="390" y="328">pattern · used 18×</text>
+
+  <rect class="d-card-knowledge" x="720" y="288" width="328" height="64"/>
+  <text class="d-label-sm" x="734" y="310">📌 Our company description</text>
+  <text class="d-label-sub" x="734" y="328">fact · used 15× · canonical</text>
+
+  <!-- Recently learned -->
+  <text class="d-section" x="32" y="392">RECENTLY LEARNED</text>
+  <rect class="d-card-knowledge" x="32" y="404" width="494" height="52"/>
+  <text class="d-label-sm" x="46" y="426">📌 Stripe Connect deprecates v1 API Mar 2027</text>
+  <text class="d-label-tiny" x="46" y="442">fact · 2d ago · from ses_b21c</text>
+
+  <rect class="d-card-knowledge" x="542" y="404" width="506" height="52"/>
+  <text class="d-label-sm" x="556" y="426">📘 SOC2 Type II readiness path</text>
+  <text class="d-label-tiny" x="556" y="442">concept · 4d ago · from ses_d40e</text>
+
+  <!-- Hazy -->
+  <text class="d-section" x="32" y="496">HAZY · 8 items</text>
+  <rect class="d-card-hazy" x="32" y="508" width="494" height="42"/>
+  <text class="d-label-sm" x="46" y="530" class="d-hazy-text" style="fill:#7a7a82">📌 Competitor C's pricing (secondhand, 60% conf)</text>
+
+  <rect class="d-card-hazy" x="542" y="508" width="506" height="42"/>
+  <text class="d-label-sm" x="556" y="530" class="d-hazy-text" style="fill:#7a7a82">📘 Old founder voice draft (superseded — review?)</text>
+</svg>
+<figcaption>Lens B: organized by recency × use-count × hazy-state. Search bar dominant at top. Each card shows type icon, slug, metadata. Hazy items visibly fade.</figcaption>
+</figure>
+
+<h3>Lens C — Topic clusters (KG ≥ 50 entities)</h3>
+
+<p>Once the KG passes ~50 entities, auto-clustering surfaces topic groupings. Agent-named, user-renamable. Clusters are an <em>agent-decided projection</em>, not the substrate — they're navigation aids, not truth.</p>
+
+<figure>
+<svg viewBox="0 0 1080 480" xmlns="http://www.w3.org/2000/svg">
+  <rect class="d-bg" width="1080" height="480"/>
+  <text class="d-title" x="32" y="40">Lens C — topic clusters (auto-projected)</text>
+  <text class="d-label-sub" x="32" y="62">Visible only when KG ≥ 50 entities. Agent-named, user-renameable. Click cluster → filtered Lens B.</text>
+
+  <!-- 5 clusters arranged in a 3-2 layout -->
+  <g>
+    <rect class="d-card-knowledge" x="32" y="92" width="332" height="156"/>
+    <text class="d-label" x="48" y="118" style="font-size:22px">📈</text>
+    <text class="d-label" x="84" y="120">Pricing &amp; monetization</text>
+    <text class="d-label-sub" x="48" y="146">18 entities · touched 14× this week</text>
+
+    <line class="d-edge" x1="48" y1="158" x2="348" y2="158"/>
+
+    <text class="d-label-sm" x="48" y="178">Stripe volume pricing</text>
+    <text class="d-label-tiny" x="48" y="194">concept · 85% · 7× use</text>
+    <text class="d-label-sm" x="48" y="214">LTV/CAC ratio</text>
+    <text class="d-label-tiny" x="48" y="230">fact · 4.2 · Q1</text>
+    <text class="d-label-tiny" x="200" y="178" style="fill:#a78bfa">[+15 more →]</text>
+  </g>
+
+  <g>
+    <rect class="d-card-knowledge" x="376" y="92" width="332" height="156"/>
+    <text class="d-label" x="392" y="118" style="font-size:22px">📜</text>
+    <text class="d-label" x="428" y="120">Legal &amp; contracts</text>
+    <text class="d-label-sub" x="392" y="146">12 entities · touched 8× this week</text>
+
+    <line class="d-edge" x1="392" y1="158" x2="692" y2="158"/>
+
+    <text class="d-label-sm" x="392" y="178">NDA standard terms</text>
+    <text class="d-label-tiny" x="392" y="194">concept · 92% · canonical</text>
+    <text class="d-label-sm" x="392" y="214">Delaware jurisdiction</text>
+    <text class="d-label-tiny" x="392" y="230">fact · 100%</text>
+    <text class="d-label-tiny" x="544" y="178" style="fill:#a78bfa">[+9 more →]</text>
+  </g>
+
+  <g>
+    <rect class="d-card-knowledge" x="720" y="92" width="328" height="156"/>
+    <text class="d-label" x="736" y="118" style="font-size:22px">👥</text>
+    <text class="d-label" x="772" y="120">Customers</text>
+    <text class="d-label-sub" x="736" y="146">9 entities · touched 11× this week</text>
+
+    <line class="d-edge" x1="736" y1="158" x2="1032" y2="158"/>
+
+    <text class="d-label-sm" x="736" y="178">Acme Corp</text>
+    <text class="d-label-tiny" x="736" y="194">entity · 3× use</text>
+    <text class="d-label-sm" x="736" y="214">BANT qualification</text>
+    <text class="d-label-tiny" x="736" y="230">concept · 22× use</text>
+    <text class="d-label-tiny" x="880" y="178" style="fill:#a78bfa">[+6 more →]</text>
+  </g>
+
+  <g>
+    <rect class="d-card-knowledge" x="32" y="268" width="510" height="156"/>
+    <text class="d-label" x="48" y="294" style="font-size:22px">📅</text>
+    <text class="d-label" x="84" y="296">Founder operations</text>
+    <text class="d-label-sub" x="48" y="322">11 entities · touched 17× this week · most active</text>
+
+    <line class="d-edge" x1="48" y1="334" x2="526" y2="334"/>
+
+    <text class="d-label-sm" x="48" y="354">Tuesday meeting refusal</text>
+    <text class="d-label-tiny" x="48" y="370">pattern · 18× use</text>
+    <text class="d-label-sm" x="48" y="390">Daily plan structure</text>
+    <text class="d-label-tiny" x="48" y="406">pattern · 15× use</text>
+    <text class="d-label-sm" x="240" y="354">Morning routine triggers</text>
+    <text class="d-label-tiny" x="240" y="370">pattern · 9× use</text>
+    <text class="d-label-tiny" x="380" y="354" style="fill:#a78bfa">[+8 more →]</text>
+  </g>
+
+  <g>
+    <rect class="d-card-knowledge" x="554" y="268" width="494" height="156"/>
+    <text class="d-label" x="570" y="294" style="font-size:22px">🔍</text>
+    <text class="d-label" x="606" y="296">Competitive landscape</text>
+    <text class="d-label-sub" x="570" y="322">6 entities · touched 4× this week</text>
+
+    <line class="d-edge" x1="570" y1="334" x2="1032" y2="334"/>
+
+    <text class="d-label-sm" x="570" y="354">Direct competitors</text>
+    <text class="d-label-tiny" x="570" y="370">concept · 6× use</text>
+    <text class="d-label-sm" x="570" y="390">Pricing benchmarks</text>
+    <text class="d-label-tiny" x="570" y="406">fact · stale 12d</text>
+    <text class="d-label-tiny" x="780" y="354" style="fill:#a78bfa">[+4 more →]</text>
+  </g>
+
+  <text class="d-label-tiny" x="32" y="458" style="fill:#9a9aa1">5 clusters cover 56 of 92 entities · 36 uncategorized (in Lens B as "Other")</text>
+</svg>
+<figcaption>Lens C: 5-cluster topic projection. Each cluster shows top entities, total count, this-week activity. Click a cluster → filters Lens B to its contents.</figcaption>
+</figure>
+
+<h3>Lens D — Graph view (always available, never primary)</h3>
+
+<p>Force-directed layout. Node size = use_count. Edge weight = co-occurrence. The graph view is for <strong>understanding</strong> what's connected, not for <strong>browsing</strong> what's there. Users open it once or twice a quarter — "what's the shape of what we know?" — and that's fine.</p>
+
+<figure>
+<svg viewBox="0 0 1080 480" xmlns="http://www.w3.org/2000/svg">
+  <rect class="d-bg" width="1080" height="480"/>
+  <text class="d-title" x="32" y="40">Lens D — force-directed graph view</text>
+  <text class="d-label-sub" x="32" y="62">Node size = use_count · edge weight = co-occurrence · color = entity type. Hover reveals, click → entity page.</text>
+
+  <!-- Pricing cluster, top-left -->
+  <g>
+    <line class="d-edge" x1="240" y1="180" x2="340" y2="160"/>
+    <line class="d-edge" x1="240" y1="180" x2="180" y2="240"/>
+    <line class="d-edge" x1="240" y1="180" x2="320" y2="260"/>
+    <line class="d-edge" x1="340" y1="160" x2="420" y2="200"/>
+    <line class="d-edge" x1="180" y1="240" x2="320" y2="260"/>
+    <line class="d-edge" x1="320" y1="260" x2="420" y2="200"/>
+
+    <circle cx="240" cy="180" r="22" class="d-knowledge"/>
+    <text class="d-label-sm" x="240" y="184" style="text-anchor:middle; fill:#0d0d0d; font-weight:700">7</text>
+    <text class="d-label-tiny" x="240" y="216" style="text-anchor:middle">stripe-volume-pricing</text>
+
+    <circle cx="340" cy="160" r="14" class="d-knowledge"/>
+    <text class="d-label-tiny" x="340" y="195" style="text-anchor:middle">pricing-strategy</text>
+
+    <circle cx="180" cy="240" r="12" class="d-knowledge"/>
+    <text class="d-label-tiny" x="180" y="270" style="text-anchor:middle">stripe (entity)</text>
+
+    <circle cx="320" cy="260" r="16" class="d-knowledge"/>
+    <text class="d-label-tiny" x="320" y="290" style="text-anchor:middle">ltv-cac-ratio</text>
+
+    <circle cx="420" cy="200" r="10" class="d-knowledge"/>
+    <text class="d-label-tiny" x="420" y="227" style="text-anchor:middle">our-stripe-tier</text>
+  </g>
+
+  <!-- Customers cluster, right -->
+  <g>
+    <line class="d-edge" x1="700" y1="180" x2="780" y2="150"/>
+    <line class="d-edge" x1="700" y1="180" x2="820" y2="220"/>
+    <line class="d-edge" x1="700" y1="180" x2="640" y2="260"/>
+    <line class="d-edge" x1="780" y1="150" x2="900" y2="180"/>
+
+    <circle cx="700" cy="180" r="26" class="d-knowledge"/>
+    <text class="d-label-sm" x="700" y="184" style="text-anchor:middle; fill:#0d0d0d; font-weight:700">22</text>
+    <text class="d-label-tiny" x="700" y="220" style="text-anchor:middle">bant-qualification</text>
+
+    <circle cx="780" cy="150" r="14" class="d-knowledge"/>
+    <text class="d-label-tiny" x="780" y="180" style="text-anchor:middle">acme-corp</text>
+
+    <circle cx="820" cy="220" r="12" class="d-knowledge"/>
+    <text class="d-label-tiny" x="820" y="250" style="text-anchor:middle">discovery-call</text>
+
+    <circle cx="900" cy="180" r="10" class="d-knowledge"/>
+    <text class="d-label-tiny" x="900" y="207" style="text-anchor:middle">cfo-contact</text>
+
+    <circle cx="640" cy="260" r="12" class="d-knowledge"/>
+    <text class="d-label-tiny" x="640" y="290" style="text-anchor:middle">objection-handling</text>
+  </g>
+
+  <!-- Cross-cluster bridge (Acme connects to pricing) -->
+  <line class="d-edge-strong" x1="340" y1="160" x2="780" y2="150" stroke-dasharray="2 3"/>
+  <text class="d-label-tiny" x="560" y="146" style="text-anchor:middle; fill:#a78bfa">cross-cluster bridge: pricing ↔ customers</text>
+
+  <!-- Ops cluster, bottom -->
+  <g>
+    <line class="d-edge" x1="400" y1="380" x2="320" y2="420"/>
+    <line class="d-edge" x1="400" y1="380" x2="500" y2="410"/>
+    <line class="d-edge" x1="500" y1="410" x2="600" y2="380"/>
+
+    <circle cx="400" cy="380" r="20" class="d-knowledge"/>
+    <text class="d-label-sm" x="400" y="384" style="text-anchor:middle; fill:#0d0d0d; font-weight:700">18</text>
+    <text class="d-label-tiny" x="400" y="412" style="text-anchor:middle">tuesday-meeting</text>
+
+    <circle cx="320" cy="420" r="14" class="d-knowledge"/>
+    <text class="d-label-tiny" x="320" y="450" style="text-anchor:middle">daily-plan-pattern</text>
+
+    <circle cx="500" cy="410" r="14" class="d-knowledge"/>
+    <text class="d-label-tiny" x="500" y="440" style="text-anchor:middle">morning-routine</text>
+
+    <circle cx="600" cy="380" r="10" class="d-knowledge"/>
+    <text class="d-label-tiny" x="600" y="407" style="text-anchor:middle">focus-blocks</text>
+  </g>
+
+  <!-- Isolated -->
+  <circle cx="980" cy="380" r="8" class="d-knowledge" opacity="0.5"/>
+  <text class="d-label-tiny" x="980" y="402" style="text-anchor:middle; opacity:0.6">orphan</text>
+
+  <!-- Legend -->
+  <g transform="translate(900,80)" class="legend-row">
+    <circle class="d-knowledge" cx="0" cy="0" r="10"/>
+    <text x="14" y="3">22× — most used</text>
+    <circle class="d-knowledge" cx="0" cy="22" r="5"/>
+    <text x="14" y="25">low use</text>
+    <line class="d-edge-strong" x1="-5" y1="44" x2="10" y2="44" stroke-dasharray="2 3"/>
+    <text x="14" y="47">cross-cluster bridge</text>
+  </g>
+</svg>
+<figcaption>Lens D: graph view for understanding shape, not for daily browsing. Node size = use, edges = co-occurrence. Cross-cluster bridges (purple dashed) reveal where work links domains.</figcaption>
+</figure>
+
+<!-- ============================================================ -->
+<h2 id="kg-growth">6. KG growth curve — same surface, scale 0 to 1000+</h2>
+
+<p>
+The hardest design constraint: the same KG surface must be honest at scale 0 and scale 1000. Different rendering at different scales. The agent picks the default lens based on entity count + recency profile.
+</p>
+
+<figure>
+<svg viewBox="0 0 1080 580" xmlns="http://www.w3.org/2000/svg">
+  <rect class="d-bg" width="1080" height="580"/>
+  <text class="d-title" x="32" y="40">KG growth — five rendering stages</text>
+  <text class="d-label-sub" x="32" y="62">Agent decides default lens by entity count + last_touched profile. User can override at any time.</text>
+
+  <!-- Stage 0 -->
+  <g>
+    <rect class="d-panel" x="32" y="92" width="200" height="220"/>
+    <text class="d-section" x="48" y="114">STAGE 0</text>
+    <text class="d-label-sub" x="48" y="130">0 entities</text>
+
+    <text class="d-label" x="48" y="170" style="text-anchor:start">Empty</text>
+    <text class="d-label-sub" x="48" y="192">+</text>
+    <text class="d-label" x="48" y="222">invitational</text>
+
+    <line class="d-edge" x1="48" y1="240" x2="216" y2="240"/>
+
+    <text class="d-label-tiny" x="48" y="262">"Houston hasn't learned</text>
+    <text class="d-label-tiny" x="48" y="278">anything yet. Have a</text>
+    <text class="d-label-tiny" x="48" y="294">conversation and we'll</text>
+    <text class="d-label-tiny" x="48" y="310">start remembering."</text>
+  </g>
+
+  <!-- Stage 1 -->
+  <g>
+    <rect class="d-panel" x="248" y="92" width="200" height="220"/>
+    <text class="d-section" x="264" y="114">STAGE 1</text>
+    <text class="d-label-sub" x="264" y="130">1-20 entities</text>
+
+    <text class="d-label" x="264" y="170">Simple list</text>
+    <text class="d-label-sub" x="264" y="192">+</text>
+    <text class="d-label" x="264" y="214">celebration on first</text>
+
+    <line class="d-edge" x1="264" y1="232" x2="432" y2="232"/>
+
+    <rect class="d-card-knowledge" x="264" y="244" width="170" height="22" style="rx:4"/>
+    <text class="d-label-tiny" x="270" y="258">📘 Stripe pricing</text>
+    <rect class="d-card-knowledge" x="264" y="270" width="170" height="22" style="rx:4"/>
+    <text class="d-label-tiny" x="270" y="284">📌 Our LTV is 4.2</text>
+    <rect class="d-card-knowledge" x="264" y="296" width="170" height="22" style="rx:4"/>
+    <text class="d-label-tiny" x="270" y="310">👤 Acme Corp</text>
+  </g>
+
+  <!-- Stage 2 -->
+  <g>
+    <rect class="d-panel" x="464" y="92" width="200" height="220"/>
+    <text class="d-section" x="480" y="114">STAGE 2</text>
+    <text class="d-label-sub" x="480" y="130">20-200 entities</text>
+
+    <text class="d-label" x="480" y="170">Categorized</text>
+    <text class="d-label-sub" x="480" y="192">+</text>
+    <text class="d-label" x="480" y="214">recent/most-used/hazy</text>
+
+    <line class="d-edge" x1="480" y1="232" x2="648" y2="232"/>
+
+    <text class="d-label-tiny" x="480" y="250">Recent (3)</text>
+    <text class="d-label-tiny" x="480" y="266">Most used (5)</text>
+    <text class="d-label-tiny" x="480" y="282">Hazy (2)</text>
+    <text class="d-label-tiny" x="480" y="304" style="fill:#a78bfa">[Search] [Filter]</text>
+  </g>
+
+  <!-- Stage 3 -->
+  <g>
+    <rect class="d-panel" x="680" y="92" width="200" height="220"/>
+    <text class="d-section" x="696" y="114">STAGE 3</text>
+    <text class="d-label-sub" x="696" y="130">200-1000 entities</text>
+
+    <text class="d-label" x="696" y="170">Topic-first</text>
+    <text class="d-label-sub" x="696" y="192">+</text>
+    <text class="d-label" x="696" y="214">clusters + decay</text>
+
+    <line class="d-edge" x1="696" y1="232" x2="864" y2="232"/>
+
+    <rect class="d-card-knowledge" x="696" y="244" width="80" height="20" style="rx:4"/>
+    <text class="d-label-tiny" x="702" y="257">📈 Pricing</text>
+    <rect class="d-card-knowledge" x="784" y="244" width="76" height="20" style="rx:4"/>
+    <text class="d-label-tiny" x="790" y="257">📜 Legal</text>
+    <rect class="d-card-knowledge" x="696" y="270" width="84" height="20" style="rx:4"/>
+    <text class="d-label-tiny" x="702" y="283">👥 Customers</text>
+    <rect class="d-card-knowledge" x="788" y="270" width="68" height="20" style="rx:4"/>
+    <text class="d-label-tiny" x="794" y="283">📅 Ops</text>
+    <text class="d-label-tiny" x="696" y="306" style="fill:#a78bfa">Search dominant · decay sweeps</text>
+  </g>
+
+  <!-- Stage 4 -->
+  <g>
+    <rect class="d-panel" x="896" y="92" width="152" height="220"/>
+    <text class="d-section" x="912" y="114">STAGE 4</text>
+    <text class="d-label-sub" x="912" y="130">1000+ entities</text>
+
+    <text class="d-label" x="912" y="170">Search-first</text>
+    <text class="d-label-sub" x="912" y="192">+</text>
+    <text class="d-label" x="912" y="214">multi-agent share</text>
+
+    <line class="d-edge" x1="912" y1="232" x2="1032" y2="232"/>
+
+    <text class="d-label-tiny" x="912" y="252">🔍 dominant</text>
+    <text class="d-label-tiny" x="912" y="268">graph occasional</text>
+    <text class="d-label-tiny" x="912" y="284">cross-agent visible</text>
+    <text class="d-label-tiny" x="912" y="300">moat-feeling</text>
+  </g>
+
+  <!-- Curve -->
+  <text class="d-section" x="32" y="356">USER PERCEPTION OVER TIME</text>
+  <line class="d-edge" x1="48" y1="372" x2="1032" y2="372"/>
+
+  <g class="legend-row">
+    <text class="d-label-sub" x="48" y="396">low</text>
+    <text class="d-label-sub" x="48" y="552">high</text>
+    <text class="d-label-sub" x="100" y="552">Stage 0</text>
+    <text class="d-label-sub" x="316" y="552">Stage 1</text>
+    <text class="d-label-sub" x="532" y="552">Stage 2</text>
+    <text class="d-label-sub" x="748" y="552">Stage 3</text>
+    <text class="d-label-sub" x="936" y="552">Stage 4</text>
+  </g>
+
+  <!-- engagement curve -->
+  <path d="M 100 540 Q 200 530 316 480 Q 432 410 532 410 Q 748 440 936 410"
+        class="d-edge-strong" fill="none" stroke="#a78bfa" stroke-width="2.5"/>
+  <circle cx="100" cy="540" r="4" fill="#a78bfa"/>
+  <circle cx="316" cy="480" r="4" fill="#a78bfa"/>
+  <circle cx="532" cy="410" r="4" fill="#a78bfa"/>
+  <circle cx="748" cy="430" r="4" fill="#a78bfa"/>
+  <circle cx="936" cy="410" r="4" fill="#a78bfa"/>
+
+  <text class="d-label-tiny" x="100" y="525" style="fill:#9a9aa1">curiosity</text>
+  <text class="d-label-tiny" x="316" y="468" style="fill:#9a9aa1">trust forms</text>
+  <text class="d-label-tiny" x="532" y="396" style="fill:#9a9aa1">"knows me"</text>
+  <text class="d-label-tiny" x="748" y="418" style="fill:#9a9aa1">compounding</text>
+  <text class="d-label-tiny" x="936" y="398" style="fill:#9a9aa1">moat</text>
+</svg>
+<figcaption>KG growth curve. Each stage triggers a different default lens. User perception of substrate value follows an upward curve — discovery, trust, compounding, moat.</figcaption>
+</figure>
+
+<!-- ============================================================ -->
+<h2 id="making">7. MAKING — artifacts in motion</h2>
+
+<p>
+Today, file-creation events emit <code>file_changes</code> feed items with <code>{created: [...], modified: [...]}</code>. The artifact <em>lifecycle</em> is invisible. In WOP, artifacts become a first-class primitive.
+</p>
+
+<h3>On-disk substrate</h3>
+
+<pre><code>~/.houston/workspaces/{Workspace}/{Agent}/.houston/
+  artifacts/
+    artifacts.json          # registry, indexed by id
+    artifacts.schema.json
+    blobs/                  # snapshots if needed (versions, partials)
+      &lt;artifact_id&gt;-v1
+      &lt;artifact_id&gt;-v2
+</code></pre>
+
+<p>Each artifact record:</p>
+
+<pre><code>{
+  "id": "art_x9c4...",
+  "type": "document",                  // document | dataset | image | code | config | ...
+  "title": "NDA draft v3",
+  "path": "/Users/.../drafts/nda-v3.md",   // current file path
+  "status": "streaming",               // draft | streaming | settled | archived
+  "producer_session": "ses_8f3a...",
+  "produced_at": "2026-05-24T13:42:00Z",
+  "lineage": ["art_x9c2", "art_x9c3"], // parent artifacts (v1 → v2 → v3)
+  "uses_knowledge": [
+    "concept/nda-standard-terms",
+    "concept/two-year-mutual-nda-pattern",
+    "fact/our-boilerplate-jurisdiction"
+  ],
+  "settled_at": null,                  // set when status flips to settled
+  "settled_by": null                   // user | agent | timeout
+}
+</code></pre>
+
+<figure>
+<svg viewBox="0 0 1080 400" xmlns="http://www.w3.org/2000/svg">
+  <rect class="d-bg" width="1080" height="400"/>
+  <text class="d-title" x="32" y="40">MAKING — artifact lifecycle states</text>
+  <text class="d-label-sub" x="32" y="62">Lineage shows version chain. Each artifact links to its producer session and the knowledge it was built from.</text>
+
+  <!-- State pipeline -->
+  <g transform="translate(60, 110)">
+    <rect class="d-card" x="0" y="0" width="120" height="56"/>
+    <text class="d-label-sm" x="60" y="22" style="text-anchor:middle">draft</text>
+    <text class="d-label-tiny" x="60" y="40" style="text-anchor:middle">agent declared</text>
+    <text class="d-label-tiny" x="60" y="52" style="text-anchor:middle">work begun</text>
+  </g>
+  <line class="d-edge" x1="180" y1="138" x2="220" y2="138"/>
+  <polygon points="220,138 214,134 214,142" fill="#6a6a76"/>
+
+  <g transform="translate(220, 110)">
+    <rect class="d-card-running" x="0" y="0" width="120" height="56"/>
+    <text class="d-label-sm" x="60" y="22" style="text-anchor:middle">streaming</text>
+    <text class="d-label-tiny" x="60" y="40" style="text-anchor:middle">content updating</text>
+    <text class="d-label-tiny" x="60" y="52" style="text-anchor:middle">live preview</text>
+  </g>
+  <line class="d-edge" x1="340" y1="138" x2="380" y2="138"/>
+  <polygon points="380,138 374,134 374,142" fill="#6a6a76"/>
+
+  <g transform="translate(380, 110)">
+    <rect class="d-card-artifact" x="0" y="0" width="120" height="56"/>
+    <text class="d-label-sm" x="60" y="22" style="text-anchor:middle">settled</text>
+    <text class="d-label-tiny" x="60" y="40" style="text-anchor:middle">user-confirmed</text>
+    <text class="d-label-tiny" x="60" y="52" style="text-anchor:middle">or agent-final</text>
+  </g>
+  <line class="d-edge" x1="500" y1="138" x2="540" y2="138"/>
+  <polygon points="540,138 534,134 534,142" fill="#6a6a76"/>
+
+  <g transform="translate(540, 110)">
+    <rect class="d-card" x="0" y="0" width="120" height="56" opacity="0.6"/>
+    <text class="d-label-sm" x="60" y="22" style="text-anchor:middle">archived</text>
+    <text class="d-label-tiny" x="60" y="40" style="text-anchor:middle">superseded or</text>
+    <text class="d-label-tiny" x="60" y="52" style="text-anchor:middle">user-archived</text>
+  </g>
+
+  <!-- self-loop streaming -->
+  <path d="M 280 110 Q 280 80 250 90" class="d-edge" fill="none"/>
+  <polygon points="250,90 256,88 254,96" fill="#6a6a76"/>
+  <text class="d-label-tiny" x="232" y="80">re-stream</text>
+
+  <!-- Lineage example -->
+  <text class="d-section" x="32" y="220">LINEAGE EXAMPLE — NDA draft chain</text>
+
+  <g transform="translate(60, 244)">
+    <rect class="d-card" x="0" y="0" width="140" height="56" opacity="0.6"/>
+    <text class="d-label-sm" x="70" y="22" style="text-anchor:middle">NDA v1 (settled)</text>
+    <text class="d-label-tiny" x="70" y="40" style="text-anchor:middle">ses_1234 · Mon</text>
+    <text class="d-label-tiny" x="70" y="52" style="text-anchor:middle">archived after v2</text>
+  </g>
+  <line class="d-edge" x1="200" y1="272" x2="240" y2="272"/>
+  <polygon points="240,272 234,268 234,276" fill="#6a6a76"/>
+
+  <g transform="translate(240, 244)">
+    <rect class="d-card" x="0" y="0" width="140" height="56" opacity="0.6"/>
+    <text class="d-label-sm" x="70" y="22" style="text-anchor:middle">NDA v2 (settled)</text>
+    <text class="d-label-tiny" x="70" y="40" style="text-anchor:middle">ses_5678 · Wed</text>
+    <text class="d-label-tiny" x="70" y="52" style="text-anchor:middle">archived after v3</text>
+  </g>
+  <line class="d-edge" x1="380" y1="272" x2="420" y2="272"/>
+  <polygon points="420,272 414,268 414,276" fill="#6a6a76"/>
+
+  <g transform="translate(420, 244)">
+    <rect class="d-card-running" x="0" y="0" width="140" height="56"/>
+    <text class="d-label-sm" x="70" y="22" style="text-anchor:middle">NDA v3 (streaming)</text>
+    <text class="d-label-tiny" x="70" y="40" style="text-anchor:middle">ses_8f3a · just now</text>
+    <text class="d-label-tiny" x="70" y="52" style="text-anchor:middle">in NOW + MAKING</text>
+  </g>
+
+  <line class="d-edge-strong" x1="560" y1="272" x2="640" y2="272" stroke-dasharray="3 3"/>
+  <text class="d-label-tiny" x="600" y="262" style="text-anchor:middle; fill:#a78bfa">uses_knowledge</text>
+
+  <g transform="translate(640, 244)">
+    <rect class="d-card-knowledge" x="0" y="0" width="180" height="56"/>
+    <text class="d-label-sm" x="90" y="22" style="text-anchor:middle">📘 NDA standard terms</text>
+    <text class="d-label-tiny" x="90" y="40" style="text-anchor:middle">concept · 92% conf</text>
+    <text class="d-label-tiny" x="90" y="52" style="text-anchor:middle">+2 more knowledge entities</text>
+  </g>
+
+  <text class="d-label-tiny" x="32" y="360" style="fill:#9a9aa1">Lineage answers: where did this artifact come from? What knowledge did it use? Which session produced it?</text>
+</svg>
+<figcaption>Artifact lifecycle. Status states: draft → streaming → settled → archived. Lineage (v1→v2→v3) makes version history first-class. Each artifact links to the knowledge it was built from.</figcaption>
+</figure>
+
+<!-- ============================================================ -->
+<h2 id="doing">8. DOING — temporal worklog</h2>
+
+<p>
+DOING is the temporal lens. Past at left, future at right, live in middle. Replaces today's "Done" column with something browseable. Same data, better representation: every settled session is a marker; scheduled routines are forward markers; the live session sits at <code>now</code>.
+</p>
+
+<figure>
+<svg viewBox="0 0 1080 360" xmlns="http://www.w3.org/2000/svg">
+  <rect class="d-bg" width="1080" height="360"/>
+  <text class="d-title" x="32" y="40">DOING — temporal worklog detail</text>
+  <text class="d-label-sub" x="32" y="62">Density heatmap at top · timeline of markers in middle · scheduled routines at right</text>
+
+  <!-- Density bar -->
+  <text class="d-section" x="32" y="98">THIS WEEK · DENSITY</text>
+  <g transform="translate(32, 110)">
+    <rect x="0" y="0" width="144" height="22" fill="#22d3ee" opacity="0.35" rx="3"/>
+    <rect x="144" y="0" width="144" height="22" fill="#22d3ee" opacity="0.45" rx="3"/>
+    <rect x="288" y="0" width="144" height="22" fill="#22d3ee" opacity="0.30" rx="3"/>
+    <rect x="432" y="0" width="144" height="22" fill="#22d3ee" opacity="0.55" rx="3"/>
+    <rect x="576" y="0" width="144" height="22" fill="#22d3ee" opacity="0.70" rx="3"/>
+    <rect x="720" y="0" width="144" height="22" fill="#22d3ee" opacity="0.50" rx="3"/>
+    <rect x="864" y="0" width="144" height="22" fill="#22d3ee" opacity="0.65" rx="3"/>
+  </g>
+  <g transform="translate(32, 145)" class="legend-row">
+    <text x="56" y="0">Mon</text>
+    <text x="200" y="0">Tue</text>
+    <text x="344" y="0">Wed</text>
+    <text x="488" y="0">Thu</text>
+    <text x="632" y="0">Fri</text>
+    <text x="776" y="0">Sat</text>
+    <text x="920" y="0">Sun</text>
+  </g>
+
+  <!-- Timeline -->
+  <text class="d-section" x="32" y="190">TIMELINE</text>
+  <line class="d-edge" x1="48" y1="220" x2="1000" y2="220"/>
+
+  <!-- past sessions -->
+  <circle class="d-done" cx="80" cy="220" r="3"/>
+  <circle class="d-done" cx="120" cy="220" r="3"/>
+  <circle class="d-done" cx="180" cy="220" r="3"/>
+  <circle class="d-done" cx="240" cy="220" r="3"/>
+  <circle class="d-done" cx="304" cy="220" r="3"/>
+  <circle class="d-done" cx="368" cy="220" r="3"/>
+  <circle class="d-done" cx="408" cy="220" r="4"/>
+  <circle class="d-needs" cx="448" cy="220" r="4"/>
+  <circle class="d-done" cx="500" cy="220" r="3"/>
+
+  <!-- live -->
+  <circle class="d-running d-glow" cx="540" cy="220" r="10"/>
+  <circle class="d-running" cx="540" cy="220" r="6"/>
+  <text class="d-label-tiny" x="528" y="246" style="fill:#3b82f6">live</text>
+
+  <!-- future -->
+  <circle cx="620" cy="220" r="3" fill="#2dd4bf"/>
+  <circle cx="700" cy="220" r="3" fill="#2dd4bf"/>
+  <circle cx="780" cy="220" r="3" fill="#2dd4bf"/>
+  <circle cx="860" cy="220" r="3" fill="#2dd4bf"/>
+  <circle cx="940" cy="220" r="3" fill="#2dd4bf"/>
+
+  <text class="d-label-tiny" x="80" y="260">7d ago</text>
+  <text class="d-label-tiny" x="304" y="260">3d ago</text>
+  <text class="d-label-tiny" x="540" y="260" style="text-anchor:middle">today</text>
+  <text class="d-label-tiny" x="780" y="260" style="text-anchor:middle">+3d</text>
+  <text class="d-label-tiny" x="940" y="260" style="text-anchor:middle">+11d</text>
+
+  <!-- Click to expand any marker → session detail (mockup of expansion) -->
+  <line class="d-edge-dashed" x1="448" y1="216" x2="408" y2="294"/>
+  <rect class="d-card" x="320" y="296" width="280" height="48"/>
+  <text class="d-label-sm" x="334" y="316">Inbox triage · ended w/ needs_you</text>
+  <text class="d-label-tiny" x="334" y="332">Operations · 3d ago · session ses_a991 · click → open</text>
+
+  <line class="d-edge-dashed" x1="700" y1="216" x2="800" y2="294"/>
+  <rect class="d-card-routine" x="700" y="296" width="280" height="48"/>
+  <text class="d-label-sm" x="714" y="316">Weekly review (routine)</text>
+  <text class="d-label-tiny" x="714" y="332">fires +3d · runs "Weekly review" skill · [Edit] [Pause]</text>
+</svg>
+<figcaption>DOING — density heatmap, timeline of session markers (past green, needs_you amber, live blue, scheduled teal), click-to-expand any marker.</figcaption>
+</figure>
+
+<!-- ============================================================ -->
+<h2 id="memory-engine">9. The memory engine</h2>
+
+<p>
+The KG is markdown files until the engine makes it queryable, decayable, and self-consolidating. Five engine moves turn it from a wiki into substrate.
+</p>
+
+<figure>
+<svg viewBox="0 0 1080 580" xmlns="http://www.w3.org/2000/svg">
+  <rect class="d-bg" width="1080" height="580"/>
+  <text class="d-title" x="32" y="40">Memory engine — five moves</text>
+  <text class="d-label-sub" x="32" y="62">Each move composes on the existing files-first substrate. No architectural reversal.</text>
+
+  <!-- Move 1 -->
+  <g transform="translate(32, 96)">
+    <rect class="d-panel-strong" x="0" y="0" width="500" height="140"/>
+    <text class="d-section" x="16" y="22">MOVE 1 — semantic search</text>
+    <text class="d-label" x="16" y="48">Embedding-backed search over entity bodies</text>
+    <text class="d-label-sub" x="16" y="68">Vector store (local model first) over knowledge/, chat history, artifacts.</text>
+    <text class="d-label-sub" x="16" y="86">Engine calls at prompt-assembly time:</text>
+    <text class="d-label-mono" x="16" y="108">POST /v1/agents/knowledge/search</text>
+    <text class="d-label-mono" x="16" y="124">  { query, k: 10, scope: workspace|agent }</text>
+  </g>
+
+  <!-- Move 2 -->
+  <g transform="translate(548, 96)">
+    <rect class="d-panel-strong" x="0" y="0" width="500" height="140"/>
+    <text class="d-section" x="16" y="22">MOVE 2 — confidence &amp; decay</text>
+    <text class="d-label" x="16" y="48">Per-entity scores; visual hazing</text>
+    <text class="d-label-sub" x="16" y="68">confidence + last_touched + use_count drive UI rendering.</text>
+    <text class="d-label-sub" x="16" y="86">Reinforced on each use; nudged down by contradiction.</text>
+    <text class="d-label-sub" x="16" y="104">Below threshold &amp; N-months-stale → archive candidate.</text>
+    <text class="d-label-mono" x="16" y="126">use_count++, last_touched=now</text>
+  </g>
+
+  <!-- Move 3 -->
+  <g transform="translate(32, 252)">
+    <rect class="d-panel-strong" x="0" y="0" width="500" height="140"/>
+    <text class="d-section" x="16" y="22">MOVE 3 — contradiction detection</text>
+    <text class="d-label" x="16" y="48">On write, search semantically-near facts</text>
+    <text class="d-label-sub" x="16" y="68">If contradiction detected → create needs_you item:</text>
+    <text class="d-label-mono" x="16" y="88">"I learned X but you said not-X in March.</text>
+    <text class="d-label-mono" x="16" y="104"> Which is true now?"</text>
+    <text class="d-label-sub" x="16" y="122">Resolution writes canonical · archives losing entity</text>
+  </g>
+
+  <!-- Move 4 -->
+  <g transform="translate(548, 252)">
+    <rect class="d-panel-strong" x="0" y="0" width="500" height="140"/>
+    <text class="d-section" x="16" y="22">MOVE 4 — dream cycle (nightly + on-demand)</text>
+    <text class="d-label" x="16" y="48">Engine routine reviews recent sessions</text>
+    <text class="d-label-sub" x="16" y="68">Scores candidates against frozen substrate snapshot</text>
+    <text class="d-label-sub" x="16" y="86">(stop-gradient property — protects upper tiers from</text>
+    <text class="d-label-sub" x="16" y="104">dense lower-tier signal corruption).</text>
+    <text class="d-label-sub" x="16" y="122">User sees morning report: "promoted 3, archived 2"</text>
+  </g>
+
+  <!-- Move 5 -->
+  <g transform="translate(32, 408)">
+    <rect class="d-panel-strong" x="0" y="0" width="1016" height="120"/>
+    <text class="d-section" x="16" y="22">MOVE 5 — cross-agent scope</text>
+    <text class="d-label" x="16" y="48">Per-entity visibility: workspace | agent:&lt;id&gt; | private</text>
+    <text class="d-label-sub" x="16" y="68">Workspace-scope entities visible to every agent. Agent-scope stays scoped (per-agent expertise).</text>
+    <text class="d-label-sub" x="16" y="88">Per-agent learnings.json stays as working memory. Workspace KG is long-term semantic memory.</text>
+    <text class="d-label-sub" x="16" y="108">WORKSPACE.md + USER.md become the canonical narrative slot; KG queryable for everything else.</text>
+  </g>
+
+  <!-- Bottom: data flow -->
+  <text class="d-label-tiny" x="540" y="556" style="text-anchor:middle; fill:#9a9aa1">All five moves keep the substrate writable by user, agent, and engine — same three-writer model that already governs .houston/</text>
+</svg>
+<figcaption>Five memory-engine moves. Each is independent; together they elevate the KG from "files with markdown" to substrate.</figcaption>
+</figure>
+
+<h3>The closed loop</h3>
+
+<figure>
+<svg viewBox="0 0 1080 360" xmlns="http://www.w3.org/2000/svg">
+  <rect class="d-bg" width="1080" height="360"/>
+  <text class="d-title" x="32" y="40">Memory engine — the closed loop</text>
+  <text class="d-label-sub" x="32" y="62">Each session reads the substrate, produces signal, the engine consolidates, next session reads more.</text>
+
+  <!-- Session box -->
+  <g transform="translate(60, 130)">
+    <rect class="d-card-running" x="0" y="0" width="180" height="80"/>
+    <text class="d-label" x="90" y="24" style="text-anchor:middle">Session N</text>
+    <text class="d-label-sub" x="90" y="44" style="text-anchor:middle">reads KG at prompt</text>
+    <text class="d-label-sub" x="90" y="60" style="text-anchor:middle">assembly · top-K</text>
+    <text class="d-label-sub" x="90" y="76" style="text-anchor:middle">semantic hits</text>
+  </g>
+
+  <!-- arrow -->
+  <line class="d-edge-strong" x1="240" y1="170" x2="320" y2="170"/>
+  <polygon points="320,170 312,166 312,174" fill="#a78bfa"/>
+  <text class="d-label-tiny" x="280" y="160" style="text-anchor:middle">produces</text>
+
+  <!-- Output box -->
+  <g transform="translate(320, 130)">
+    <rect class="d-card-artifact" x="0" y="0" width="180" height="80"/>
+    <text class="d-label" x="90" y="24" style="text-anchor:middle">Session output</text>
+    <text class="d-label-sub" x="90" y="44" style="text-anchor:middle">chat history</text>
+    <text class="d-label-sub" x="90" y="60" style="text-anchor:middle">artifacts</text>
+    <text class="d-label-sub" x="90" y="76" style="text-anchor:middle">file changes</text>
+  </g>
+
+  <!-- arrow -->
+  <line class="d-edge-strong" x1="500" y1="170" x2="580" y2="170"/>
+  <polygon points="580,170 572,166 572,174" fill="#a78bfa"/>
+  <text class="d-label-tiny" x="540" y="160" style="text-anchor:middle">consolidates</text>
+
+  <!-- Consolidation -->
+  <g transform="translate(580, 130)">
+    <rect class="d-card-knowledge" x="0" y="0" width="200" height="80"/>
+    <text class="d-label" x="100" y="24" style="text-anchor:middle">Dream cycle</text>
+    <text class="d-label-sub" x="100" y="44" style="text-anchor:middle">score against frozen</text>
+    <text class="d-label-sub" x="100" y="60" style="text-anchor:middle">snapshot · promote/</text>
+    <text class="d-label-sub" x="100" y="76" style="text-anchor:middle">archive/contradict</text>
+  </g>
+
+  <!-- arrow back to KG -->
+  <line class="d-edge-strong" x1="780" y1="170" x2="860" y2="170"/>
+  <polygon points="860,170 852,166 852,174" fill="#a78bfa"/>
+  <text class="d-label-tiny" x="820" y="160" style="text-anchor:middle">writes</text>
+
+  <!-- KG -->
+  <g transform="translate(860, 130)">
+    <rect class="d-card-knowledge" x="0" y="0" width="160" height="80"/>
+    <text class="d-label" x="80" y="24" style="text-anchor:middle">Knowledge Graph</text>
+    <text class="d-label-sub" x="80" y="44" style="text-anchor:middle">concept/</text>
+    <text class="d-label-sub" x="80" y="60" style="text-anchor:middle">pattern/</text>
+    <text class="d-label-sub" x="80" y="76" style="text-anchor:middle">fact/ · entity/</text>
+  </g>
+
+  <!-- loop back -->
+  <path d="M 940 130 Q 940 80 500 80 Q 150 80 150 130"
+        class="d-edge-dashed" stroke="#a78bfa" fill="none"/>
+  <polygon points="150,124 146,116 154,116" fill="#a78bfa"/>
+  <text class="d-label-tiny" x="540" y="76" style="text-anchor:middle; fill:#a78bfa">read by Session N+1 — the loop closes</text>
+
+  <!-- Side notes -->
+  <text class="d-label-tiny" x="540" y="270" style="text-anchor:middle">Substrate is always writable by user (direct edit) — file watcher catches → events emit → consolidation re-runs</text>
+  <text class="d-label-tiny" x="540" y="290" style="text-anchor:middle">No "agent says X but UI shows Y" failure mode by construction (P1: three-writer reactivity)</text>
+</svg>
+<figcaption>The closed loop: each session reads the substrate, produces signal, the dream-cycle consolidates against a frozen snapshot, and the next session reads more.</figcaption>
+</figure>
+
+<!-- ============================================================ -->
+<h2 id="implementation">10. Implementation sequence</h2>
+
+<p>
+Seven stages. Each builds on the substrate Houston already has. Stages 1-3 are the memory engine (substrate work); stages 4-6 are the agentic UX on top; stage 7 is polish.
+</p>
+
+<figure>
+<svg viewBox="0 0 1080 520" xmlns="http://www.w3.org/2000/svg">
+  <rect class="d-bg" width="1080" height="520"/>
+  <text class="d-title" x="32" y="40">Implementation dependency chain</text>
+  <text class="d-label-sub" x="32" y="62">Stages 1-3 unlock everything else. Stage 6 (WOP) blocked on KG being useful (stages 1-2 at minimum).</text>
+
+  <!-- Stage 1 -->
+  <g transform="translate(32, 100)">
+    <rect class="d-panel-strong" x="0" y="0" width="200" height="100"/>
+    <text class="d-section" x="14" y="22">STAGE 1 — substrate</text>
+    <text class="d-label" x="14" y="44">.houston/knowledge/</text>
+    <text class="d-label-sub" x="14" y="62">+ schemas · folder layout</text>
+    <text class="d-label" x="14" y="80">.houston/artifacts/</text>
+    <text class="d-label-sub" x="14" y="98">+ artifact records · events</text>
+  </g>
+
+  <!-- Stage 2 -->
+  <g transform="translate(280, 100)">
+    <rect class="d-panel-strong" x="0" y="0" width="200" height="100"/>
+    <text class="d-section" x="14" y="22">STAGE 2 — read path</text>
+    <text class="d-label" x="14" y="44">build_agent_context</text>
+    <text class="d-label-sub" x="14" y="62">+ top-K KG hits at prompt</text>
+    <text class="d-label" x="14" y="80">semantic search route</text>
+    <text class="d-label-sub" x="14" y="98">POST /v1/agents/knowledge/search</text>
+  </g>
+
+  <!-- Stage 3 -->
+  <g transform="translate(528, 100)">
+    <rect class="d-panel-strong" x="0" y="0" width="200" height="100"/>
+    <text class="d-section" x="14" y="22">STAGE 3 — promotion</text>
+    <text class="d-label" x="14" y="44">/promote-to-knowledge skill</text>
+    <text class="d-label-sub" x="14" y="62">+ "Save to knowledge" UI</text>
+    <text class="d-label" x="14" y="80">dream-cycle routine</text>
+    <text class="d-label-sub" x="14" y="98">nightly consolidation</text>
+  </g>
+
+  <!-- Stage 4 -->
+  <g transform="translate(776, 100)">
+    <rect class="d-panel-strong" x="0" y="0" width="272" height="100"/>
+    <text class="d-section" x="14" y="22">STAGE 4 — contextual surfacing</text>
+    <text class="d-label" x="14" y="44">knowledge chips in chat</text>
+    <text class="d-label-sub" x="14" y="62">artifact "built using" panel</text>
+    <text class="d-label" x="14" y="80">entity side-panel viewer</text>
+    <text class="d-label-sub" x="14" y="98">first user-visible KG win</text>
+  </g>
+
+  <!-- arrows -->
+  <line class="d-edge-strong" x1="232" y1="150" x2="280" y2="150"/>
+  <polygon points="280,150 272,146 272,154" fill="#a78bfa"/>
+  <line class="d-edge-strong" x1="480" y1="150" x2="528" y2="150"/>
+  <polygon points="528,150 520,146 520,154" fill="#a78bfa"/>
+  <line class="d-edge-strong" x1="728" y1="150" x2="776" y2="150"/>
+  <polygon points="776,150 768,146 768,154" fill="#a78bfa"/>
+
+  <!-- Stage 5 -->
+  <g transform="translate(32, 252)">
+    <rect class="d-panel-strong" x="0" y="0" width="296" height="100"/>
+    <text class="d-section" x="14" y="22">STAGE 5 — wiki + clusters</text>
+    <text class="d-label" x="14" y="44">entity page surface · markdown body</text>
+    <text class="d-label-sub" x="14" y="62">+ linked entities · sessions · artifacts · edit</text>
+    <text class="d-label" x="14" y="80">topic clustering (Stage 3 KG threshold)</text>
+    <text class="d-label-sub" x="14" y="98">agent-named, user-renameable</text>
+  </g>
+
+  <!-- Stage 6 -->
+  <g transform="translate(376, 252)">
+    <rect class="d-panel-strong" x="0" y="0" width="296" height="100"/>
+    <text class="d-section" x="14" y="22">STAGE 6 — WOP surface</text>
+    <text class="d-label" x="14" y="44">NOW / KNOWING / MAKING / DOING</text>
+    <text class="d-label-sub" x="14" y="62">add as peer tab first (don't kill Board)</text>
+    <text class="d-label" x="14" y="80">agent-curated NOW triage</text>
+    <text class="d-label-sub" x="14" y="98">requires solid KG to be valuable</text>
+  </g>
+
+  <!-- Stage 7 -->
+  <g transform="translate(720, 252)">
+    <rect class="d-panel-strong" x="0" y="0" width="328" height="100"/>
+    <text class="d-section" x="14" y="22">STAGE 7 — polish</text>
+    <text class="d-label" x="14" y="44">graph view (Lens D) · contradiction UX</text>
+    <text class="d-label-sub" x="14" y="62">cross-agent shared concept resolution</text>
+    <text class="d-label" x="14" y="80">"Houston's attention" slider (terse/balanced/proactive)</text>
+    <text class="d-label-sub" x="14" y="98">archive sweep · decay calibration</text>
+  </g>
+
+  <!-- vertical arrows down -->
+  <line class="d-edge-strong" x1="180" y1="200" x2="180" y2="252"/>
+  <polygon points="180,252 176,244 184,244" fill="#a78bfa"/>
+  <line class="d-edge-strong" x1="524" y1="200" x2="524" y2="252"/>
+  <polygon points="524,252 520,244 528,244" fill="#a78bfa"/>
+  <line class="d-edge-strong" x1="884" y1="200" x2="884" y2="252"/>
+  <polygon points="884,252 880,244 888,244" fill="#a78bfa"/>
+
+  <!-- Files touched callout -->
+  <text class="d-section" x="32" y="404">CONCRETE TOUCH POINTS</text>
+  <text class="d-label-mono" x="32" y="426">Engine:</text>
+  <text class="d-label-mono" x="100" y="426" style="fill:#a78bfa">engine/houston-agent-files (new schemas) · engine/houston-engine-core/src/agents/knowledge.rs (new) ·</text>
+  <text class="d-label-mono" x="100" y="442" style="fill:#a78bfa">engine/houston-engine-core/src/agents/artifacts.rs (new) · engine/houston-engine-server/src/routes/knowledge.rs (new)</text>
+  <text class="d-label-mono" x="32" y="466">Prompt:</text>
+  <text class="d-label-mono" x="100" y="466" style="fill:#a78bfa">engine/houston-engine-core/src/agents/prompt.rs::build_agent_context (+ knowledge_index block)</text>
+  <text class="d-label-mono" x="32" y="490">UI:</text>
+  <text class="d-label-mono" x="100" y="490" style="fill:#a78bfa">ui/agent-schemas/src/knowledge.schema.json · ui/board (new Wop component) · app/src/components/wop/</text>
+</svg>
+<figcaption>Implementation dependency chain. Memory engine (1-3) unblocks UX (4-6). Polish (7) is calibration work, not new primitives.</figcaption>
+</figure>
+
+<h3>Stage detail</h3>
+
+<table>
+<thead><tr><th>Stage</th><th>Deliverable</th><th>Unblocks</th><th>Est. weeks</th></tr></thead>
+<tbody>
+<tr>
+  <td><strong>1</strong></td>
+  <td>
+    <code>.houston/knowledge/{concept,pattern,fact,entity}/</code> folder + schemas seeded ·
+    <code>.houston/artifacts/artifacts.json</code> with lifecycle states ·
+    <code>KnowledgeChanged</code> and <code>ArtifactChanged</code> events on the bus ·
+    <code>POST /v1/agents/knowledge/{read,write,list}</code> routes
+  </td>
+  <td>Stage 2 (read path)</td>
+  <td>1-2</td>
+</tr>
+<tr>
+  <td><strong>2</strong></td>
+  <td>
+    <code>build_agent_context</code> reads knowledge index (bounded by token budget, top-K not full dump) ·
+    <code>POST /v1/agents/knowledge/search</code> with semantic query (local embedding model first) ·
+    prompt instructs model: "knowledge_search tool available"
+  </td>
+  <td>Stages 3, 4</td>
+  <td>2</td>
+</tr>
+<tr>
+  <td><strong>3</strong></td>
+  <td>
+    <code>promote-to-knowledge</code> skill bundled with default agents ·
+    "Save to knowledge" button on chat messages, artifacts, needs_you cards ·
+    nightly dream-cycle routine writing to <code>~/.houston/.dream-cycle/log.jsonl</code> ·
+    morning report surfaced in NOW
+  </td>
+  <td>Stages 5, 6 — KG starts compounding</td>
+  <td>1-2</td>
+</tr>
+<tr>
+  <td><strong>4</strong></td>
+  <td>
+    Knowledge chip component in <code>@houston-ai/chat</code> (small inline citations) ·
+    "Built using" panel on artifacts ·
+    Entity side-panel viewer (markdown body + sources + links + edit) ·
+    decoder in <code>@houston-ai/chat</code> matching existing <code>&lt;!--houston:skill --&gt;</code> pattern
+  </td>
+  <td>First user-visible KG value</td>
+  <td>1-2</td>
+</tr>
+<tr>
+  <td><strong>5</strong></td>
+  <td>
+    Full entity page (route: <code>/workspace/{ws}/knowledge/{type}/{slug}</code>) ·
+    Lens B layout (recent / most-used / hazy) ·
+    auto-clustering when KG ≥ 50 (uses semantic embeddings from Stage 2) ·
+    user-rename + ignore-cluster
+  </td>
+  <td>Lens C / KNOWING band</td>
+  <td>2</td>
+</tr>
+<tr>
+  <td><strong>6</strong></td>
+  <td>
+    New <code>Workspace</code> tab (peer to Board, not replacing) ·
+    four-region WOP component in <code>@houston-ai/board</code> or new <code>@houston-ai/wop</code> package ·
+    NOW agent-curated triage (model ranks within tier; deterministic guarantees enforced engine-side) ·
+    MAKING and DOING bands ·
+    "Houston's attention" slider in settings
+  </td>
+  <td>Stage 7 polish</td>
+  <td>2-3</td>
+</tr>
+<tr>
+  <td><strong>7</strong></td>
+  <td>
+    Lens D graph view (force-directed, D3 or similar in <code>@houston-ai/knowledge-graph</code>) ·
+    contradiction-resolution UX (the "I learned X but you said not-X" needs_you flow) ·
+    cross-agent visibility scope on entities · archive sweep · decay calibration based on usage data
+  </td>
+  <td>(final shape)</td>
+  <td>2-3</td>
+</tr>
+</tbody>
+</table>
+
+<p><strong>Total estimate:</strong> 11-16 weeks of focused work for one engineer + one designer. Stages 1-4 are the critical path to user-visible value; if forced to ship a slice, ship 1+2+4 (substrate + read path + contextual surfacing) — that's enough to demonstrate the primitive without committing to WOP.</p>
+
+<!-- ============================================================ -->
+<h2 id="tradeoffs">11. Tradeoffs &amp; open questions</h2>
+
+<h3>WOP vs Board — replace, peer, or kill?</h3>
+
+<p>
+Start as a peer surface ("Workspace" tab next to "Board"). Measure engagement. Decide. Killing the Board before WOP earns its place loses users who genuinely think in cards. There's a real demographic that prefers kanban — power users who manage multiple agents, founders who came from Linear/Jira culture.
+</p>
+
+<h3>Agent-curation vs deterministic guarantees</h3>
+
+<p>
+Pure agent-curated NOW = magical when right, infuriating when wrong. Pure deterministic = transparent but no smarter than today. The hybrid:
+</p>
+
+<ul>
+  <li><strong>Deterministic floor</strong> — errors always rank 1, no <code>needs_you</code> is hidden, deadlines within 24h auto-promote</li>
+  <li><strong>Agent ceiling</strong> — within tiers, agent ranks; surfaces R4 passive observations</li>
+  <li><strong>User dial</strong> — "Houston's attention" slider: terse (R1-R2 only) / balanced (default, R1-R4) / proactive (more R4 + suggestion items)</li>
+</ul>
+
+<h3>Semantic search cost</h3>
+
+<p>
+Local embedding model (slow on first run, no network, privacy-preserving) vs remote API (recurring cost, faster, privacy implication). Local-first ethos says local model. Memory engine performance depends on this. Real tradeoff.
+</p>
+
+<div class="callout warn">
+<p><strong>Open question:</strong> which local embedding model ships in the Houston <code>.app</code>? Candidates: <code>all-MiniLM-L6-v2</code> (small, fast, English-only) · BGE small · Nomic Embed Text v2 (multilingual, 137M params, ~250MB on disk). Multilingual matters because Houston ships en/es/pt. Phase 1 might use OpenAI/Anthropic embeddings API for simplicity, with local model as Phase 2 — but that breaks the local-first promise.</p>
+</div>
+
+<h3>Provenance honesty when user edits</h3>
+
+<p>
+Every entity carries <code>sources</code>. When user edits an entity directly, does it lose machine-confidence? Probably yes (mark <code>confidence: user_override</code>). But this fights the "substrate is user-writable" principle. Worth a real decision before shipping. My instinct: user edits set <code>last_edited_by: user</code> and <code>confidence_source: user</code>, while still preserving machine-derived <code>sources</code>.
+</p>
+
+<h3>Cross-agent shared knowledge governance</h3>
+
+<p>
+When Agent A learns "Acme Corp raised $20M", Agent B in the same workspace should see this. But Agent B may have learned a different fact about Acme Corp. Whose version wins? Per-entity <code>scope</code> tag (<code>workspace</code> vs <code>agent:&lt;id&gt;</code>) is the lever, but the UX for resolving disagreement is unclear. Maybe: workspace-scope entities are merged-on-write with contradiction detection; agent-scope stays separate.
+</p>
+
+<h3>Decay vs forgetting</h3>
+
+<p>
+Should an entity untouched for 12 months be archived (still queryable, hidden from default surfaces) or deleted (gone)? Recommended: archive only, never delete without user confirmation. But this means the substrate grows unboundedly. Compromise: archive after 6mo (no decay before that), warn for deletion after 24mo with explicit user confirmation.
+</p>
+
+<h3>Mobile rendering</h3>
+
+<p>
+The WOP is rich. Mobile gets a stripped version: NOW only (big triage cards, push-style), KNOWING accessible via search but not primary, MAKING/DOING collapsed. Mobile is the "respond to triage on the go" surface; desktop is the substrate. This means the mobile PWA stays useful without becoming the full picture.
+</p>
+
+<h3>Voice rule tension</h3>
+
+<p>
+Houston's voice rule forbids "files, paths, JSON, CLI strings" in user-facing copy. The KG view is, by definition, an exposure of the substrate. Reconciliation:
+</p>
+
+<ul>
+  <li><strong>In chat:</strong> knowledge chips show <em>title</em> + type icon, never paths. Click → side panel shows body, sources are described ("from your May 12 Stripe call") not pathed</li>
+  <li><strong>In Lens B/C wiki:</strong> entity titles are user-facing; slugs are hidden behind hover ("show slug" toggle for developers)</li>
+  <li><strong>Edit experience:</strong> markdown editor with title + body fields; frontmatter handled behind the scenes</li>
+</ul>
+
+<p>The substrate stays user-readable for users who want to look (Files tab still shows it), but the default UX never leaks paths.</p>
+
+<!-- ============================================================ -->
+<h2 id="decision-log">12. Decisions to make before any code</h2>
+
+<table>
+<thead><tr><th>#</th><th>Decision</th><th>Default if not decided</th></tr></thead>
+<tbody>
+<tr>
+  <td>D1</td>
+  <td>WOP replaces Board, lives alongside, or is opt-in flag?</td>
+  <td>Lives alongside as peer "Workspace" tab. Board kept untouched. Measure switching behavior.</td>
+</tr>
+<tr>
+  <td>D2</td>
+  <td>Semantic search: local model or remote API for Phase 1?</td>
+  <td>Remote (OpenAI/Anthropic embeddings) for speed; local model in Phase 2. Honest about the local-first regression.</td>
+</tr>
+<tr>
+  <td>D3</td>
+  <td>KG entity confidence: numeric (0.0-1.0) or categorical (low/med/high)?</td>
+  <td>Numeric on disk, categorical in UI. Best of both.</td>
+</tr>
+<tr>
+  <td>D4</td>
+  <td>Dream cycle: opt-in or default-on?</td>
+  <td>Default-on but quiet. Morning report only when items were promoted or archived. Users can pause from settings.</td>
+</tr>
+<tr>
+  <td>D5</td>
+  <td>Artifact lineage: track all versions or only "settled" ones?</td>
+  <td>Track all. Disk cost trivial (markdown blobs). Lineage value compounds.</td>
+</tr>
+<tr>
+  <td>D6</td>
+  <td>"Houston's attention" slider — default tier?</td>
+  <td>Balanced (R1-R4 visible, R4 calibrated conservatively). Adjustable.</td>
+</tr>
+<tr>
+  <td>D7</td>
+  <td>R4 passive observations: opt-in or default-on?</td>
+  <td>Default-on at "balanced". A first-week onboarding step explains: "Houston will sometimes notice things you didn't ask about. Useful or annoying? Adjust below."</td>
+</tr>
+<tr>
+  <td>D8</td>
+  <td>Cross-agent shared concepts: workspace-scope default or agent-scope default?</td>
+  <td>Agent-scope default. Promote to workspace-scope only when explicit (user click or agent-detected "this is workspace-wide").</td>
+</tr>
+<tr>
+  <td>D9</td>
+  <td>KG search route auth scope: per-workspace, per-agent, or both?</td>
+  <td>Per-agent by default; <code>?scope=workspace</code> opt-in. Matches existing route shape.</td>
+</tr>
+<tr>
+  <td>D10</td>
+  <td>Mobile WOP: ship at same time or as Phase 2 add-on?</td>
+  <td>Phase 2. Mobile NOW band ships first; KNOWING wikilookup ships second; MAKING/DOING ship third.</td>
+</tr>
+</tbody>
+</table>
+
+<hr style="border: 0; border-top: 1px solid var(--rule); margin: 48px 0 32px;">
+
+<h2 style="border-top: none; padding-top: 0; margin-top: 0;">Net read</h2>
+
+<p>
+The Board is competent SaaS-shape over a genuinely AI-native engine. The WOP + KG rethink is not a rewrite — it is the next layer of legibility over the same substrate. Houston's hardest engineering (files-first, three-writer reactivity, atomic writes, event bus, provider abstraction) already makes everything in this spec possible. What's left is two missing primitives (typed knowledge, lifecycled artifacts) and one cultural shift (agent ranks the user's attention).
+</p>
+
+<p>
+<strong>The two moves that unlock the rest:</strong>
+</p>
+
+<ol>
+  <li><strong>Promote knowledge + artifacts to first-class primitives</strong> in <code>.houston/</code>, with the same atomic-writes + schema + event pattern the rest of Houston runs on. Small surface area, big leverage.</li>
+  <li><strong>Accept agent-curated triage in the primary surface</strong>, with deterministic guarantees as backstop. The agent ranks; the system promises no errors and no <code>needs_you</code> items are hidden.</li>
+</ol>
+
+<p>
+Everything else in this spec — the four lenses, growth curve, WOP regions, memory engine, mobile considerations — is rendering work on top of those two primitives.
+</p>
+
+<p class="footnote" style="color: var(--muted); font-size: 12px; margin-top: 32px;">
+Spec authored by Carlos (broomva) via Claude session, 2026-05-24. Companion to prior assessment "Houston vs AI-native platform philosophy" (chat transcript). No commit; review before persistence.
+</p>
+
+</div>
+</body>
+</html>
