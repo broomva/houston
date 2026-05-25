@@ -341,7 +341,7 @@ When working in this code:
 |-----------|----------------------|
 | **Hygiene (P10)** | Worktree per chunk; clean tree at start of each. Multi-week project, easy to drift. |
 | **Empirical (P11)** | Every verifiable behavior runs against a real Linear sandbox org — not synthetic. |
-| **Persist (P12)** | Multi-week scope; use `persist iterate PROMPT.md` to survive context-window decay. |
+| **Persist (P12)** | Multi-week scope; each PR carries enough context (linked KB + spec + prior PR refs) that a fresh agent can resume without a session-handoff doc. |
 | **Dep-Chain (P14)** | Every PR enumerates upstream files touched + downstream consumers affected. |
 | **Snapshot (P15)** | Every PR opens with git/branch state + Linear-mirror state (cursor, last reconcile, open AgentSessions). |
 | **Audience (P18)** | Specs → HTML in `docs/specs/`. KB references → markdown (this file). PR explainers for substantive PRs → HTML. |
