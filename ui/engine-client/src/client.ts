@@ -78,6 +78,7 @@ import type {
   SessionCancelResponse,
   SessionStartRequest,
   SessionStartResponse,
+  SkillCatalogItem,
   SkillDetail,
   SkillSummary,
   StoreListing,
@@ -423,6 +424,15 @@ export class HoustonClient {
 
   listSkills(workspacePath: string): Promise<SkillSummary[]> {
     return this.request("GET", "/skills", undefined, { workspacePath });
+  }
+  listSkillCatalog(
+    workspacePath: string,
+    includeExternal = false,
+  ): Promise<SkillCatalogItem[]> {
+    return this.request("GET", "/skills/catalog", undefined, {
+      workspacePath,
+      includeExternal: includeExternal ? "true" : "false",
+    });
   }
   loadSkill(workspacePath: string, name: string): Promise<SkillDetail> {
     return this.request("GET", `/skills/${this.seg(name)}`, undefined, { workspacePath });

@@ -177,6 +177,7 @@ export type {
   PreparedAttachments,
   PrepareAttachments,
 } from "./chat-panel-types";
+export type { SlashSkillOption } from "./slash-skills";
 export type { ChatProcessLabels } from "./chat-process-block";
 
 export { AskUserQuestionCard } from "./ask-user-question-card";

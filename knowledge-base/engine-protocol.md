@@ -187,6 +187,7 @@ not user-facing copy.
 | Method | Path | Description |
 |---|---|---|
 | GET/POST | `/v1/skills` | List/create |
+| GET | `/v1/skills/catalog?workspacePath=<agent>&includeExternal=true` | Read-only slash picker catalog. Includes the agent's Houston skills by default, and workspace/project/global Claude or `.agents` skills when `includeExternal` is true. |
 | GET/PUT/DELETE | `/v1/skills/:name` | Load/save/delete |
 | POST | `/v1/skills/community/search` | Search community registry, cached/throttled server-side |
 | POST | `/v1/skills/community/install` | Install community skill |

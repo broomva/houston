@@ -5,6 +5,7 @@
     "dropTitle": "Suelta tus archivos",
     "dropDescription": "Suéltalos aquí para añadirlos a la conversación",
     "imagePasteUnavailable": "No se pudo leer la imagen pegada. Prueba a arrastrar el archivo.",
+    "slashSkillEmpty": "No hay habilidades que coincidan",
     "addFiles": "Agregar archivos"
   },
   "queue": {

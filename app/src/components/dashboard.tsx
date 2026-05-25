@@ -32,7 +32,7 @@ import { buildMissionBoardColumns } from "./mission-board-columns";
 import { navigateBoard } from "../lib/board-navigate";
 
 export function Dashboard() {
-  const { t } = useTranslation(["dashboard", "board", "common"]);
+  const { t } = useTranslation(["dashboard", "board", "common", "chat"]);
   const queuedLabels = useQueuedMessageLabels();
   // Card-action tooltips (Approve / Rename / Delete) — shared with the
   // per-agent board tab so the affordance reads the same everywhere.
@@ -423,6 +423,8 @@ export function Dashboard() {
           chatEmptyState={panel.chatEmptyState}
           composerHeader={panel.composerHeader}
           canSendEmpty={panel.canSendEmpty}
+          slashSkillOptions={panel.slashSkillOptions}
+          onSlashSkillSelect={panel.onSlashSkillSelect}
           onComposerSubmit={handleComposerSubmit}
           footer={panel.footer}
           attachMenu={panel.attachMenu}
@@ -437,6 +439,13 @@ export function Dashboard() {
           getThinkingMessage={panel.getThinkingMessage}
           renderTurnSummary={panel.renderTurnSummary}
           renderLink={panel.renderLink}
+          composerLabels={{
+            fileAlreadyInChat: t("chat:composer.fileAlreadyInChat"),
+            dropTitle: t("chat:composer.dropTitle"),
+            dropDescription: t("chat:composer.dropDescription"),
+            imagePasteUnavailable: t("chat:composer.imagePasteUnavailable"),
+            slashSkillEmpty: t("chat:composer.slashSkillEmpty"),
+          }}
         />
       </div>
 

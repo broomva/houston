@@ -5,6 +5,7 @@
     "dropTitle": "Solte seus arquivos",
     "dropDescription": "Solte-os aqui para adicioná-los à conversa",
     "imagePasteUnavailable": "Não foi possível ler a imagem colada. Tente arrastar o arquivo.",
+    "slashSkillEmpty": "Nenhuma habilidade encontrada",
     "addFiles": "Adicionar arquivos"
   },
   "queue": {

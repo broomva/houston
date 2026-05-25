@@ -1,6 +1,7 @@
 export { useActivity, useCreateActivity, useUpdateActivity, useDeleteActivity } from "./use-activity";
 export {
   useSkills,
+  useSkillCatalog,
   useSkillDetail,
   useCreateSkill,
   useSaveSkill,
