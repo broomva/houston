@@ -9,6 +9,8 @@ export const queryKeys = {
   // Agent-scoped (reactive via file watcher + Tauri events)
   activity: (agentPath: string) => ["activity", agentPath] as const,
   skills: (agentPath: string) => ["skills", agentPath] as const,
+  skillCatalog: (agentPath: string, includeExternal: boolean) =>
+    ["skill-catalog", agentPath, includeExternal] as const,
   skillDetail: (agentPath: string, name: string) =>
     ["skill-detail", agentPath, name] as const,
   files: (agentPath: string) => ["files", agentPath] as const,

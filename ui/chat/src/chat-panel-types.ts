@@ -3,6 +3,7 @@ import type { ToolsAndCardsProps } from "./chat-helpers";
 import type { ChatMessagesProps } from "./chat-messages";
 import type { ChatMessage } from "./feed-to-messages";
 import type { QueuedChatMessage, QueuedMessageLabels } from "./queued-message-list";
+import type { SlashSkillOption } from "./slash-skills";
 import type { FeedItem } from "./types";
 
 export type ChatStatus = "ready" | "streaming" | "submitted";
@@ -28,6 +29,7 @@ export interface ChatComposerLabels {
   /** Shown when an image was on the clipboard but the webview never
    *  handed over the bytes (Linux Wayland WebKitGTK). */
   imagePasteUnavailable?: string;
+  slashSkillEmpty?: string;
 }
 
 export interface ChatPanelProps {
@@ -59,6 +61,8 @@ export interface ChatPanelProps {
   onRemoveQueuedMessage?: (id: string) => void;
   queuedLabels?: QueuedMessageLabels;
   canSendEmpty?: boolean;
+  slashSkillOptions?: SlashSkillOption[];
+  onSlashSkillSelect?: (skill: SlashSkillOption) => void;
   status?: ChatStatus;
   thinkingIndicator?: ReactNode;
   transformContent?: (content: string) => { content: string; extra?: ReactNode };

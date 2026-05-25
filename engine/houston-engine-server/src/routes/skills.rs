@@ -9,7 +9,7 @@ use axum::{
 };
 use houston_engine_core::skills::{
     self, CreateSkillRequest, InstallCommunityRequest, InstallFromRepoRequest, SaveSkillRequest,
-    SkillDetailResponse, SkillSummaryResponse,
+    SkillCatalogItem, SkillDetailResponse, SkillSummaryResponse,
 };
 use houston_skills::remote::{CommunitySkill, RepoSkill};
 use serde::Deserialize;
@@ -18,6 +18,7 @@ use std::sync::Arc;
 pub fn router() -> Router<Arc<ServerState>> {
     Router::new()
         .route("/skills", get(list).post(create))
+        .route("/skills/catalog", get(catalog))
         .route("/skills/:name", get(load).put(save).delete(remove))
         .route("/skills/community/search", post(community_search))
         .route("/skills/community/popular", post(community_popular))
@@ -30,6 +31,14 @@ pub fn router() -> Router<Arc<ServerState>> {
 #[serde(rename_all = "camelCase")]
 struct WorkspaceQuery {
     workspace_path: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CatalogQuery {
+    workspace_path: String,
+    #[serde(default)]
+    include_external: bool,
 }
 
 #[derive(Deserialize)]
@@ -49,6 +58,16 @@ async fn list(
     Query(q): Query<WorkspaceQuery>,
 ) -> Result<Json<Vec<SkillSummaryResponse>>, ApiError> {
     Ok(Json(skills::list(&q.workspace_path)?))
+}
+
+async fn catalog(
+    State(_st): State<Arc<ServerState>>,
+    Query(q): Query<CatalogQuery>,
+) -> Result<Json<Vec<SkillCatalogItem>>, ApiError> {
+    Ok(Json(skills::catalog(
+        &q.workspace_path,
+        q.include_external,
+    )?))
 }
 
 async fn load(

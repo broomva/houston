@@ -107,6 +107,10 @@
       "claude_hooks": {
         "label": "Hooks do Claude Code",
         "description": "Instala hooks leves no CLI do Claude Code no seu computador para que cada chamada de ferramenta seja anexada a um arquivo JSONL que você pode acompanhar com tail e inspecionar."
+      },
+      "slash_skills": {
+        "label": "Habilidades com /",
+        "description": "Mostra um seletor de habilidades com / no composer do chat e inclui habilidades deste espaço e das suas pastas locais de Claude ou agentes."
       }
     },
     "resetAll": "Redefinir todas as configurações avançadas",

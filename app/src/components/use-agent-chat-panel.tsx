@@ -41,8 +41,10 @@ import {
   useActivity,
   useConnectedToolkits,
   useConnections,
+  useSkillCatalog,
   useSkills,
 } from "../hooks/queries";
+import { useFeatureFlag } from "../hooks/useFeatureFlag";
 import {
   tauriActivity,
   tauriAttachments,
@@ -93,8 +95,18 @@ import {
 } from "./tabs/provider-auth-feed";
 
 import type { AIBoardProps } from "@houston-ai/board";
-import type { ChatMessage, ChatPanelProps, FeedItem } from "@houston-ai/chat";
-import type { Agent, AgentDefinition, SkillSummary } from "../lib/types";
+import type {
+  ChatMessage,
+  ChatPanelProps,
+  FeedItem,
+  SlashSkillOption,
+} from "@houston-ai/chat";
+import type {
+  Agent,
+  AgentDefinition,
+  SkillCatalogItem,
+  SkillSummary,
+} from "../lib/types";
 
 interface UseAgentChatPanelArgs {
   /** The agent the panel is currently scoped to. Null disables features. */
@@ -114,6 +126,10 @@ interface AgentChatPanelProps {
   composerHeader: AIBoardProps["composerHeader"];
   /** Submit can run the selected Skill without extra text. */
   canSendEmpty: AIBoardProps["canSendEmpty"];
+  /** Slash-triggered skills surfaced in the composer. */
+  slashSkillOptions: AIBoardProps["slashSkillOptions"];
+  /** Pins a slash-selected Skill above the composer. */
+  onSlashSkillSelect: AIBoardProps["onSlashSkillSelect"];
   /** Intercepts composer submit while a Skill is selected. */
   onComposerSubmit: AIBoardProps["onComposerSubmit"];
   /** Composer footer with model selector + Skills button. */
@@ -139,6 +155,40 @@ interface AgentChatPanelProps {
   /** Effective provider/model for sending. */
   effectiveProvider: string;
   effectiveModel: string;
+}
+
+function catalogOptionId(skill: SkillCatalogItem): string {
+  return `${skill.origin}:${skill.path}`;
+}
+
+function catalogSkillToSummary(skill: SkillCatalogItem): SkillSummary {
+  return {
+    name: skill.name,
+    description: skill.description,
+    version: skill.version,
+    tags: [],
+    created: null,
+    last_used: null,
+    category: null,
+    featured: false,
+    integrations: [],
+    image: null,
+    inputs: [],
+    prompt_template: null,
+  };
+}
+
+function buildExternalSkillPrompt(
+  skill: SkillCatalogItem,
+  userText: string,
+): string {
+  const trimmed = userText.trim();
+  const preamble = [
+    `Use the ${skill.name} skill.`,
+    `Read and follow the SKILL.md at ${skill.path}.`,
+    `Source: ${skill.sourceLabel}.`,
+  ].join("\n");
+  return trimmed ? `${preamble}\n\n${trimmed}` : preamble;
 }
 
 export function useAgentChatPanel({
@@ -270,7 +320,12 @@ export function useAgentChatPanel({
     useComposedSpecialToolRenderers(composedSpecialRenderers);
 
   // ── Skills + selected-skill state ─────────────────────────────────────
+  const slashSkillsEnabled = useFeatureFlag("advanced.slash_skills");
   const { data: allSkills } = useSkills(path ?? undefined);
+  const { data: skillCatalog } = useSkillCatalog(
+    path ?? undefined,
+    slashSkillsEnabled,
+  );
   const emptySkillShowcase = useMemo(() => {
     const skills = allSkills ?? [];
     const featured = skills.filter((s) => s.featured);
@@ -283,10 +338,13 @@ export function useAgentChatPanel({
 
   const [pickerOpen, setPickerOpen] = useState(false);
   const [activeSkill, setActiveSkill] = useState<SkillSummary | null>(null);
+  const [activeExternalSkill, setActiveExternalSkill] =
+    useState<SkillCatalogItem | null>(null);
   // Drop selected Skill when the agent / session changes so it doesn't
   // leak across contexts.
   useEffect(() => {
     setActiveSkill(null);
+    setActiveExternalSkill(null);
   }, [path, selectedSessionKey]);
 
   const onSelectSessionRef = useRef(onSelectSession);
@@ -310,7 +368,9 @@ export function useAgentChatPanel({
       const skill = activeSkill;
       if (!skill || !agent || !path) return false;
 
-      const claudePrompt = buildSkillClaudePrompt(skill, text);
+      const claudePrompt = activeExternalSkill
+        ? buildExternalSkillPrompt(activeExternalSkill, text)
+        : buildSkillClaudePrompt(skill, text);
       const encoded = encodeSkillMessage(skill, text, claudePrompt);
       const friendlyTitle = humanizeSkillName(skill.name);
 
@@ -407,10 +467,12 @@ export function useAgentChatPanel({
         onSelectSessionRef.current?.(conversationId);
       }
       setActiveSkill(null);
+      setActiveExternalSkill(null);
       return true;
     },
     [
       activeSkill,
+      activeExternalSkill,
       agent,
       path,
       agentModes,
@@ -425,8 +487,39 @@ export function useAgentChatPanel({
   // Picking a skill from a card or the picker pins it above the regular
   // composer. The user can add text or send the Skill by itself.
   const applySkill = useCallback(
-    (skill: SkillSummary) => setActiveSkill(skill),
+    (skill: SkillSummary) => {
+      setActiveSkill(skill);
+      setActiveExternalSkill(null);
+    },
     [],
+  );
+
+  const slashSkillOptions = useMemo<SlashSkillOption[]>(() => {
+    if (!agent || !slashSkillsEnabled) return [];
+    return (skillCatalog ?? []).map((skill) => ({
+      id: catalogOptionId(skill),
+      name: humanizeSkillName(skill.name),
+      description: skill.description,
+      sourceLabel: skill.sourceLabel,
+      readonly: skill.readonly,
+    }));
+  }, [agent, slashSkillsEnabled, skillCatalog]);
+
+  const handleSlashSkillSelect = useCallback<NonNullable<AIBoardProps["onSlashSkillSelect"]>>(
+    (option) => {
+      const skill = (skillCatalog ?? []).find(
+        (candidate) => catalogOptionId(candidate) === option.id,
+      );
+      if (!skill) return;
+      const localSkill = (allSkills ?? []).find((candidate) => candidate.name === skill.name);
+      if (skill.origin === "houston_agent" && localSkill) {
+        applySkill(localSkill);
+        return;
+      }
+      setActiveSkill(localSkill ?? catalogSkillToSummary(skill));
+      setActiveExternalSkill(skill);
+    },
+    [allSkills, applySkill, skillCatalog],
   );
 
   // ── Built JSX bundles ─────────────────────────────────────────────────
@@ -510,7 +603,10 @@ export function useAgentChatPanel({
     return (
       <SelectedSkillChip
         skill={activeSkill}
-        onCancel={() => setActiveSkill(null)}
+        onCancel={() => {
+          setActiveSkill(null);
+          setActiveExternalSkill(null);
+        }}
       />
     );
   }, [agent, activeSkill]);
@@ -639,6 +735,8 @@ export function useAgentChatPanel({
     chatEmptyState,
     composerHeader,
     canSendEmpty: activeSkill != null,
+    slashSkillOptions,
+    onSlashSkillSelect: handleSlashSkillSelect,
     onComposerSubmit: handleSkillComposerSubmit,
     footer,
     attachMenu,

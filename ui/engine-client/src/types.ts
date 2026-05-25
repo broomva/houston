@@ -292,6 +292,23 @@ export interface SkillSummary {
   promptTemplate: string | null;
 }
 
+export type SkillCatalogOrigin =
+  | "houston_agent"
+  | "houston_workspace"
+  | "project"
+  | "claude_global"
+  | "agents_global";
+
+export interface SkillCatalogItem {
+  name: string;
+  description: string;
+  version: number;
+  origin: SkillCatalogOrigin;
+  path: string;
+  sourceLabel: string;
+  readonly: boolean;
+}
+
 export interface SkillInputDef {
   name: string;
   label: string;

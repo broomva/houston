@@ -10,6 +10,17 @@ export function useSkills(agentPath: string | undefined) {
   });
 }
 
+export function useSkillCatalog(
+  agentPath: string | undefined,
+  includeExternal: boolean,
+) {
+  return useQuery({
+    queryKey: queryKeys.skillCatalog(agentPath ?? "", includeExternal),
+    queryFn: () => tauriSkills.catalog(agentPath!, includeExternal),
+    enabled: !!agentPath,
+  });
+}
+
 export function useSkillDetail(agentPath: string | undefined, name: string | undefined) {
   return useQuery({
     queryKey: queryKeys.skillDetail(agentPath ?? "", name ?? ""),

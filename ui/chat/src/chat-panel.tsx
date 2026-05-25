@@ -61,6 +61,8 @@ export function ChatPanel({
   onRemoveQueuedMessage,
   queuedLabels,
   canSendEmpty,
+  slashSkillOptions,
+  onSlashSkillSelect,
   composerOverride,
   composerLabels,
 }: ChatPanelProps) {
@@ -176,6 +178,8 @@ export function ChatPanel({
           onRemoveQueuedMessage={onRemoveQueuedMessage}
           queuedLabels={queuedLabels}
           canSendEmpty={canSendEmpty}
+          slashSkillOptions={slashSkillOptions}
+          onSlashSkillSelect={onSlashSkillSelect}
           labels={composerLabels}
         />
       )}
