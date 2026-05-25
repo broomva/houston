@@ -178,6 +178,7 @@ export type {
   PreparedAttachments,
   PrepareAttachments,
 } from "./chat-panel-types";
+export type { SlashSkillOption } from "./slash-skills";
 export type { ChatProcessLabels } from "./chat-process-block";
 export { ChatStatusLine } from "./chat-status-line";
 export type { ChatStatusLineProps } from "./chat-status-line";

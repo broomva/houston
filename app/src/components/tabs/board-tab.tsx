@@ -693,6 +693,7 @@ export default function BoardTab({ agent, agentDef }: TabProps) {
             dropTitle: t("chat:composer.dropTitle"),
             dropDescription: t("chat:composer.dropDescription"),
             imagePasteUnavailable: t("chat:composer.imagePasteUnavailable"),
+            slashSkillEmpty: t("chat:composer.slashSkillEmpty"),
           }}
           prepareAttachments={attachmentValidation.prepareAttachments}
           onAttachmentRejections={attachmentValidation.onAttachmentRejections}
@@ -716,6 +717,8 @@ export default function BoardTab({ agent, agentDef }: TabProps) {
           chatEmptyState={panel.chatEmptyState}
           composerHeader={panel.composerHeader}
           canSendEmpty={panel.canSendEmpty}
+          slashSkillOptions={panel.slashSkillOptions}
+          onSlashSkillSelect={panel.onSlashSkillSelect}
           onComposerSubmit={handleComposerSubmit}
           footer={panel.footer}
           attachMenu={panel.attachMenu}

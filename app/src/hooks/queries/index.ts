@@ -8,6 +8,7 @@ export {
 } from "./use-activity";
 export {
   useSkills,
+  useSkillCatalog,
   useSkillDetail,
   useCreateSkill,
   useSaveSkill,

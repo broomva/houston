@@ -14,6 +14,7 @@ use houston_skills::{
 };
 use houston_ui_events::{DynEventSink, HoustonEvent};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 // ── DTOs ───────────────────────────────────────────────────────────
@@ -58,6 +59,28 @@ pub struct SkillDetailResponse {
     pub description: String,
     pub version: u32,
     pub content: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SkillCatalogOrigin {
+    HoustonAgent,
+    HoustonWorkspace,
+    Project,
+    ClaudeGlobal,
+    AgentsGlobal,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillCatalogItem {
+    pub name: String,
+    pub description: String,
+    pub version: u32,
+    pub origin: SkillCatalogOrigin,
+    pub path: String,
+    pub source_label: String,
+    pub readonly: bool,
 }
 
 #[derive(Deserialize, Debug)]
@@ -195,6 +218,81 @@ fn expand_tilde(path: &Path) -> PathBuf {
 
 fn skills_dir(workspace_path: &str) -> PathBuf {
     expand_tilde(&PathBuf::from(workspace_path)).join(".agents/skills")
+}
+
+fn source_label(origin: &SkillCatalogOrigin) -> &'static str {
+    match origin {
+        SkillCatalogOrigin::HoustonAgent => "Agent",
+        SkillCatalogOrigin::HoustonWorkspace => "Workspace",
+        SkillCatalogOrigin::Project => "Project",
+        SkillCatalogOrigin::ClaudeGlobal => "Claude",
+        SkillCatalogOrigin::AgentsGlobal => "Global",
+    }
+}
+
+fn scan_catalog_dir(
+    out: &mut Vec<SkillCatalogItem>,
+    seen: &mut HashSet<PathBuf>,
+    dir: PathBuf,
+    origin: SkillCatalogOrigin,
+    readonly: bool,
+) -> CoreResult<()> {
+    if !dir.exists() {
+        return Ok(());
+    }
+    if readonly {
+        let entries = std::fs::read_dir(&dir).map_err(|e| CoreError::Internal(e.to_string()))?;
+        for entry in entries {
+            let path = entry
+                .map_err(|e| CoreError::Internal(e.to_string()))?
+                .path();
+            if !path.is_dir() {
+                continue;
+            }
+            let skill_md = path.join("SKILL.md");
+            if !skill_md.exists() {
+                continue;
+            }
+            let Ok((summary, _)) = houston_skills::format::parse_file(&skill_md) else {
+                tracing::warn!(
+                    "[houston-skills] skipping malformed external skill {}",
+                    skill_md.display()
+                );
+                continue;
+            };
+            push_catalog_item(out, seen, skill_md, summary, origin.clone(), readonly);
+        }
+        return Ok(());
+    }
+    let summaries = houston_skills::list_skills(&dir)?;
+    for summary in summaries {
+        let skill_md = dir.join(&summary.name).join("SKILL.md");
+        push_catalog_item(out, seen, skill_md, summary, origin.clone(), readonly);
+    }
+    Ok(())
+}
+
+fn push_catalog_item(
+    out: &mut Vec<SkillCatalogItem>,
+    seen: &mut HashSet<PathBuf>,
+    skill_md: PathBuf,
+    summary: houston_skills::SkillSummary,
+    origin: SkillCatalogOrigin,
+    readonly: bool,
+) {
+    let dedupe_key = std::fs::canonicalize(&skill_md).unwrap_or_else(|_| skill_md.clone());
+    if !seen.insert(dedupe_key) {
+        return;
+    }
+    out.push(SkillCatalogItem {
+        name: summary.name,
+        description: summary.description,
+        version: summary.version,
+        origin: origin.clone(),
+        path: skill_md.to_string_lossy().to_string(),
+        source_label: source_label(&origin).to_string(),
+        readonly,
+    });
 }
 
 /// Create `.claude/skills/{name}` so Claude Code discovers the skill natively.
@@ -362,6 +460,69 @@ pub fn list(workspace_path: &str) -> CoreResult<Vec<SkillSummaryResponse>> {
             prompt_template: s.prompt_template,
         })
         .collect())
+}
+
+pub fn catalog(workspace_path: &str, include_external: bool) -> CoreResult<Vec<SkillCatalogItem>> {
+    let root = expand_tilde(&PathBuf::from(workspace_path));
+    let mut items = Vec::new();
+    let mut seen = HashSet::new();
+
+    scan_catalog_dir(
+        &mut items,
+        &mut seen,
+        root.join(".agents/skills"),
+        SkillCatalogOrigin::HoustonAgent,
+        false,
+    )?;
+
+    if include_external {
+        if let Some(workspace_root) = root.parent() {
+            scan_catalog_dir(
+                &mut items,
+                &mut seen,
+                workspace_root.join(".agents/skills"),
+                SkillCatalogOrigin::HoustonWorkspace,
+                true,
+            )?;
+            scan_catalog_dir(
+                &mut items,
+                &mut seen,
+                workspace_root.join(".claude/skills"),
+                SkillCatalogOrigin::Project,
+                true,
+            )?;
+        }
+        scan_catalog_dir(
+            &mut items,
+            &mut seen,
+            root.join(".claude/skills"),
+            SkillCatalogOrigin::Project,
+            true,
+        )?;
+        if let Some(home) = dirs::home_dir() {
+            scan_catalog_dir(
+                &mut items,
+                &mut seen,
+                home.join(".claude/skills"),
+                SkillCatalogOrigin::ClaudeGlobal,
+                true,
+            )?;
+            scan_catalog_dir(
+                &mut items,
+                &mut seen,
+                home.join(".agents/skills"),
+                SkillCatalogOrigin::AgentsGlobal,
+                true,
+            )?;
+        }
+    }
+
+    items.sort_by(|a, b| {
+        a.name
+            .cmp(&b.name)
+            .then_with(|| a.source_label.cmp(&b.source_label))
+    });
+    Ok(items)
 }
 
 pub fn load(workspace_path: &str, name: &str) -> CoreResult<SkillDetailResponse> {
@@ -691,5 +852,73 @@ mod tests {
         let err = load(&ws, "nope").unwrap_err();
         assert_eq!(err.code(), houston_engine_protocol::ErrorCode::NotFound);
         assert_eq!(err.kind(), Some("skill_not_found"));
+    }
+
+    #[test]
+    fn catalog_lists_agent_skills_without_external_sources() {
+        let d = TempDir::new().unwrap();
+        let ws = d.path().to_string_lossy().to_string();
+        let (events, _) = sink();
+        create(
+            &events,
+            CreateSkillRequest {
+                workspace_path: ws.clone(),
+                name: "local".into(),
+                description: "Local skill".into(),
+                content: "body".into(),
+            },
+        )
+        .unwrap();
+
+        let items = catalog(&ws, false).unwrap();
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].name, "local");
+        assert_eq!(items[0].origin, SkillCatalogOrigin::HoustonAgent);
+        assert!(!items[0].readonly);
+    }
+
+    #[test]
+    fn catalog_includes_workspace_skills_when_enabled() {
+        let d = TempDir::new().unwrap();
+        let workspace = d.path().join("Acme");
+        let agent = workspace.join("Ops");
+        std::fs::create_dir_all(agent.join(".agents/skills")).unwrap();
+        std::fs::create_dir_all(workspace.join(".agents/skills/shared")).unwrap();
+        std::fs::write(
+            workspace.join(".agents/skills/shared/SKILL.md"),
+            "---\nname: shared\ndescription: Shared skill\nversion: 1\ntags: []\n---\n\nbody\n",
+        )
+        .unwrap();
+
+        let items = catalog(&agent.to_string_lossy(), true).unwrap();
+        let shared = items
+            .iter()
+            .find(|item| item.name == "shared")
+            .expect("shared workspace skill");
+
+        assert_eq!(shared.origin, SkillCatalogOrigin::HoustonWorkspace);
+        assert!(shared.readonly);
+    }
+
+    #[test]
+    fn catalog_does_not_migrate_external_flat_files() {
+        let d = TempDir::new().unwrap();
+        let workspace = d.path().join("Acme");
+        let agent = workspace.join("Ops");
+        let external_dir = workspace.join(".agents/skills");
+        std::fs::create_dir_all(agent.join(".agents/skills")).unwrap();
+        std::fs::create_dir_all(&external_dir).unwrap();
+        std::fs::write(
+            external_dir.join("flat.md"),
+            "---\nname: flat\ndescription: Flat skill\nversion: 1\ntags: []\n---\n\nbody\n",
+        )
+        .unwrap();
+
+        let items = catalog(&agent.to_string_lossy(), true).unwrap();
+
+        assert!(!items.iter().any(|item| item.name == "flat"));
+        assert!(external_dir.join("flat.md").exists());
+        assert!(!external_dir.join("flat/SKILL.md").exists());
     }
 }

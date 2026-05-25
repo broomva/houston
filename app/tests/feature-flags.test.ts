@@ -1,14 +1,14 @@
 /**
  * Feature-flag unit tests. Exercises the pure helpers (flagToString,
  * stringToFlag, getFlagDefault) and the migration runner. Runs under
- * `node --test`, matching the rest of `app/tests/`.
+ * `bun test`, matching the app tests that need module mocking.
  *
  * The hook itself (`useFeatureFlag`) is a React+TanStack composition and
  * is best exercised in integration via the running app — these tests cover
  * the primitives that compose into the resolution chain so the chain's
  * behavior is provable from substitution.
  */
-import test from "node:test";
+import { mock, test } from "bun:test";
 import assert from "node:assert/strict";
 
 // --- Stub the substrate that `featureFlags.ts` reaches for ---
@@ -16,51 +16,40 @@ import assert from "node:assert/strict";
 // touches it via .get/.set so we replace the whole module with a
 // programmable fake before importing the unit under test.
 
-import { Module } from "node:module";
-
 const prefStore = new Map<string, string | null>();
 const setLog: Array<[string, string]> = [];
 
-interface ResolveContext {
-  parentURL?: string;
-}
+mock.module("../src/lib/tauri", () => ({
+  tauriPreferences: {
+    get: async (key: string): Promise<string | null> => {
+      if (!prefStore.has(key)) return null;
+      return prefStore.get(key) ?? null;
+    },
+    set: async (key: string, value: string): Promise<void> => {
+      prefStore.set(key, value);
+      setLog.push([key, value]);
+    },
+  },
+}));
 
-const originalResolve = (Module as unknown as {
-  _resolveFilename: (
-    request: string,
-    parent: unknown,
-    isMain: boolean,
-    options: ResolveContext,
-  ) => string;
-})._resolveFilename;
+mock.module("../src/lib/logger", () => ({
+  logger: {
+    debug: (..._args: unknown[]) => {},
+    info: (..._args: unknown[]) => {},
+    warn: (..._args: unknown[]) => {},
+    error: (..._args: unknown[]) => {},
+  },
+}));
 
-(Module as unknown as {
-  _resolveFilename: typeof originalResolve;
-})._resolveFilename = function (request, parent, isMain, options) {
-  if (request === "../src/lib/tauri.ts" || request === "../src/lib/tauri") {
-    return require.resolve("./fixtures/feature-flags-tauri-stub.ts");
-  }
-  if (request === "../src/lib/logger.ts" || request === "../src/lib/logger") {
-    return require.resolve("./fixtures/feature-flags-logger-stub.ts");
-  }
-  return originalResolve.call(this, request, parent, isMain, options);
-};
-
-// Import after the resolver hook is installed so the under-test module
-// picks up the stubs instead of the real modules.
-import {
+// Import after mocks are installed so the under-test module picks up the stubs.
+const {
   flagToString,
   stringToFlag,
   getFlagDefault,
   runFlagMigrations,
   FLAG_REGISTRY,
   FLAG_MIGRATIONS,
-} from "../src/lib/featureFlags.ts";
-
-// Re-export the in-memory store so the stub file can wire to it.
-// The stub file reads `globalThis.__test_pref_store__` at import time.
-(globalThis as Record<string, unknown>).__test_pref_store__ = prefStore;
-(globalThis as Record<string, unknown>).__test_set_log__ = setLog;
+} = await import("../src/lib/featureFlags.ts");
 
 // ---------- flagToString ----------
 
@@ -205,6 +194,20 @@ test("FLAG_REGISTRY contains advanced.claude_hooks with the expected shape", () 
   assert.equal(flag.status, "beta");
   assert.equal(flag.labelKey, "advanced.flags.claude_hooks.label");
   assert.equal(flag.descriptionKey, "advanced.flags.claude_hooks.description");
+  assert.equal(flag.graduationTarget, "permanent");
+});
+
+test("FLAG_REGISTRY contains advanced.slash_skills with the expected shape", () => {
+  const flag = FLAG_REGISTRY["advanced.slash_skills"];
+  assert.ok(flag, "advanced.slash_skills must be registered");
+  assert.equal(flag.key, "advanced.slash_skills");
+  assert.equal(flag.category, "advanced");
+  assert.equal(flag.default, false);
+  assert.equal(flag.enforcementSurface, "ui");
+  assert.equal(flag.status, "beta");
+  assert.equal(flag.labelKey, "advanced.flags.slash_skills.label");
+  assert.equal(flag.descriptionKey, "advanced.flags.slash_skills.description");
+  assert.equal(flag.learnMoreSlug, "slash-skills");
   assert.equal(flag.graduationTarget, "permanent");
 });
 

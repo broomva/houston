@@ -136,6 +136,18 @@ export const FLAG_REGISTRY: Record<string, FlagDef> = {
     since: "0.4.6",
     graduationTarget: "permanent",
   },
+  "advanced.slash_skills": {
+    key: "advanced.slash_skills",
+    category: "advanced",
+    default: false,
+    labelKey: "advanced.flags.slash_skills.label",
+    descriptionKey: "advanced.flags.slash_skills.description",
+    enforcementSurface: "ui",
+    status: "beta",
+    learnMoreSlug: "slash-skills",
+    since: "0.4.7",
+    graduationTarget: "permanent",
+  },
 };
 
 export type FlagMigration =

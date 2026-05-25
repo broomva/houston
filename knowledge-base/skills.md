@@ -85,6 +85,32 @@ Step-by-step instructions Claude follows when the Skill runs.
    - `renderUserMessage` — decodes skill + attachment markers into cards
 6. Both **BoardTab** (per-agent kanban) and **Dashboard** (Mission Control / cross-agent kanban) consume this hook so the right panel is identical in both views.
 
+## Slash picker catalog
+
+The advanced `advanced.slash_skills` flag enables a `/` picker inside the
+chat composer. The shared `@houston-ai/chat` component owns only the generic
+menu mechanics; the Houston app supplies options from `useAgentChatPanel`.
+
+Catalog source order:
+
+1. `Agent/.agents/skills/*/SKILL.md` as editable Houston agent skills.
+2. `Workspace/.agents/skills/*/SKILL.md` as read-only workspace skills.
+3. `Workspace/.claude/skills/*/SKILL.md` and `Agent/.claude/skills/*/SKILL.md` as read-only project skills.
+4. `~/.claude/skills/*/SKILL.md` as read-only Claude global skills.
+5. `~/.agents/skills/*/SKILL.md` as read-only agent global skills.
+
+`GET /v1/skills/catalog` returns `SkillCatalogItem` with `origin`, `path`,
+`sourceLabel`, and `readonly`. The read-only scans do **not** run Houston's
+flat-file migration; external directories must not be modified just because
+the user typed `/`. Duplicate symlink targets are deduped by canonical
+`SKILL.md` path.
+
+When the selected item is a normal Houston agent skill, the existing Skill
+send pipeline runs unchanged. When it is external, Houston still persists the
+same skill-invocation marker for the user-visible card, but the model-facing
+prompt includes the external `SKILL.md` path and source label so the downstream
+CLI agent can read and follow the user's existing skill.
+
 ## Community search behavior
 
 `POST /v1/skills/community/search` calls `skills.sh`, which can rate-limit.

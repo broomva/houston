@@ -5,6 +5,7 @@
     "dropTitle": "Drop your files",
     "dropDescription": "Drop them here to add them to the conversation",
     "imagePasteUnavailable": "Couldn't read the pasted image. Try dragging the file in instead.",
+    "slashSkillEmpty": "No matching skills",
     "addFiles": "Add files"
   },
   "queue": {

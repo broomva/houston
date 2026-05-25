@@ -31,6 +31,7 @@ export function useAgentInvalidation() {
           break;
         case "SkillsChanged":
           qc.invalidateQueries({ queryKey: queryKeys.skills(p.data.agent_path) });
+          qc.invalidateQueries({ queryKey: ["skill-catalog", p.data.agent_path] });
           break;
         case "FilesChanged":
           qc.invalidateQueries({ queryKey: queryKeys.files(p.data.agent_path) });

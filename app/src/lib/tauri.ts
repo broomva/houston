@@ -14,6 +14,7 @@
 import type {
   Workspace,
   Agent,
+  SkillCatalogItem,
   SkillSummary,
   SkillDetail,
   CommunitySkillResult,
@@ -303,6 +304,10 @@ export const tauriSkills = {
         })),
         prompt_template: s.promptTemplate ?? null,
       })),
+    ),
+  catalog: (agentPath: string, includeExternal: boolean) =>
+    call<SkillCatalogItem[]>("list_skill_catalog", () =>
+      getEngine().listSkillCatalog(agentPath, includeExternal),
     ),
   load: (agentPath: string, name: string) =>
     call<SkillDetail>("load_skill", () => getEngine().loadSkill(agentPath, name)),

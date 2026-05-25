@@ -135,6 +135,10 @@ export interface AIBoardProps {
       }) => ReactNode)
   /** Enables submit even when the composer has no text or files. */
   canSendEmpty?: boolean
+  /** Slash-triggered skills for the chat composer. Forwarded to ChatPanel. */
+  slashSkillOptions?: ChatPanelProps["slashSkillOptions"]
+  /** Called when a slash skill is selected. Forwarded to ChatPanel. */
+  onSlashSkillSelect?: ChatPanelProps["onSlashSkillSelect"]
   /** Lets consumers handle a submit before the board creates/sends a normal chat message. */
   onComposerSubmit?: (ctx: {
     sessionKey: string | null
@@ -239,6 +243,8 @@ export function AIBoard({
   composerHeader,
   attachMenu,
   canSendEmpty,
+  slashSkillOptions,
+  onSlashSkillSelect,
   onComposerSubmit,
   cardLabels,
   composerOverride,
@@ -556,6 +562,8 @@ export function AIBoard({
               : attachMenu
           }
           canSendEmpty={canSendEmpty}
+          slashSkillOptions={slashSkillOptions}
+          onSlashSkillSelect={onSlashSkillSelect}
           composerOverride={composerOverride}
           composerLabels={composerLabels}
         />

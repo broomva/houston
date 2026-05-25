@@ -108,6 +108,10 @@
       "claude_hooks": {
         "label": "Claude Code hooks",
         "description": "Install lightweight hooks into the Claude Code CLI on your machine so every tool call it makes is appended to a JSONL file you can tail and inspect."
+      },
+      "slash_skills": {
+        "label": "Slash skills",
+        "description": "Show a / skill picker in the chat composer and include skills from this workspace plus your local Claude or agent folders."
       }
     },
     "resetAll": "Reset all advanced settings",
