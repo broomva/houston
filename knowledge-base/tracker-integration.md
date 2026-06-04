@@ -364,7 +364,7 @@ curl -X POST "http://127.0.0.1:$PORT/v1/trackers/linear/sync?workspacePath=..." 
 tail -f ~/.houston/workspaces/<W>/<A>/.houston/trackers/linear/raw/webhook_events.jsonl
 
 # Inspect projection
-cat ~/.houston/workspaces/<W>/<A>/.houston/trackers/linear/issues.json | jq '.[] | {id, identifier, state, assignee}'
+cat ~/.houston/workspaces/<W>/<A>/.houston/trackers/linear/issues.json | jq '.[] | {providerId, identifier, state, stateType, assigneeId}'
 
 # Check sync state
 cat ~/.houston/workspaces/<W>/<A>/.houston/trackers/linear/sync_state.json | jq
