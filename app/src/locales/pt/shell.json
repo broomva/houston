@@ -29,6 +29,10 @@
     "newMission": "Nova missão",
     "startTour": "Me guie"
   },
+  "sentrySmoke": {
+    "nativeTriggeredTitle": "Teste nativo do Sentry acionado",
+    "nativeTriggeredDescription": "Confira o Sentry para sentry-native-stack-smoke-test."
+  },
   "agentDelete": {
     "title": "Excluir o agente?",
     "description": "Isso apaga o agente e todos os seus dados de forma permanente. Não dá para desfazer."
@@ -158,7 +162,8 @@
     "primaryAction": "Atualizar e reiniciar",
     "installingAction": "Instalando atualização...",
     "relaunchAction": "Reiniciar Houston",
-    "retryAction": "Tentar de novo"
+    "retryAction": "Tentar de novo",
+    "dismissAction": "Dispensar atualização por enquanto"
   },
   "store": {
     "searchPlaceholder": "Buscar na loja...",
@@ -311,9 +316,9 @@
       "checkStatus": "Ver página de status"
     },
     "sessionResumeMissing": {
-      "title": "Não dá para retomar esta sessão",
-      "body": "A sessão anterior do {{provider}} não existe mais. Comece uma missão nova para continuar.",
-      "startFresh": "Recomeçar"
+      "title": "Sessão reiniciada",
+      "body": "A conversa anterior do {{provider}} não pôde ser reaberta, então o Houston a reiniciou. Sua mensagem foi enviada novamente e o assistente está respondendo abaixo.",
+      "tryAgain": "Tentar de novo"
     },
     "malformedResponse": {
       "title": "Resposta corrompida",
@@ -370,5 +375,20 @@
       "panelEscape": "Sair do chat e depois fechar",
       "cheatsheet": "Mostrar esta lista"
     }
+  },
+  "userMenu": {
+    "sendFeedback": "Enviar feedback"
+  },
+  "feedback": {
+    "title": "Enviar feedback",
+    "description": "Os relatórios de erro chegam automaticamente. Isto é para tudo o mais: algo que parece estranho, um fluxo que quebrou, uma ideia.",
+    "placeholder": "O que você está pensando?",
+    "send": "Enviar",
+    "sending": "Enviando...",
+    "cancel": "Cancelar",
+    "successTitle": "Recebido, obrigado pelo relatório.",
+    "successWithId": "O centro de controle está cuidando disso. Referência: {{id}}",
+    "successNoId": "O centro de controle está cuidando disso.",
+    "errorTitle": "Não foi possível enviar o relatório"
   }
 }

@@ -199,8 +199,22 @@ pub async fn run_shell(req: RunShellRequest) -> CoreResult<String> {
         )));
     }
 
-    let output = Command::new("sh")
-        .args(["-c", &req.command])
+    // Run through the platform shell so pipes, globs, and builtins work. There
+    // is no `sh` on Windows, so use `cmd /C`; everywhere else use `sh -c`.
+    #[cfg(windows)]
+    let mut command = {
+        let mut c = Command::new("cmd");
+        c.args(["/C", &req.command]);
+        c
+    };
+    #[cfg(not(windows))]
+    let mut command = {
+        let mut c = Command::new("sh");
+        c.args(["-c", &req.command]);
+        c
+    };
+
+    let output = command
         .current_dir(&dir)
         .env("PATH", houston_terminal_manager::claude_path::shell_path())
         .output()

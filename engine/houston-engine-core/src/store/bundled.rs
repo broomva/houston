@@ -597,8 +597,7 @@ mod tests {
   "id": "{id}",
   "name": "Demo",
   "description": "Demo agent",
-  "version": "{version}",
-  "tabs": [{{"id": "chat", "label": "Chat", "builtIn": "chat"}}]
+  "version": "{version}"
 }}"#
             ),
         )
@@ -1334,8 +1333,7 @@ User customized body
   "id": "{id}",
   "name": "Demo",
   "description": "Demo agent",
-  "version": "{version}",
-  "tabs": [{{"id": "chat", "label": "Chat", "builtIn": "chat"}}]
+  "version": "{version}"
 }}"#
             ),
         )

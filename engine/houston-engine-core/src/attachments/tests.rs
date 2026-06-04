@@ -80,8 +80,20 @@ fn commit_upload_writes_manifest_and_prompt_path() {
         "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824".into(),
     )
     .unwrap();
-    assert!(out.path.contains("activity-1/files/"));
-    assert!(!out.path.contains("/../"));
+    // `path` is a real filesystem path, so its separator is platform-specific
+    // (`\` on Windows). Assert structure with `MAIN_SEPARATOR`, not a literal
+    // `/`, or the check spuriously fails on Windows.
+    let sep = std::path::MAIN_SEPARATOR;
+    assert!(
+        out.path.contains(&format!("activity-1{sep}files{sep}")),
+        "committed file must live under the scope's files dir: {}",
+        out.path
+    );
+    assert!(
+        !out.path.contains(&format!("{sep}..{sep}")),
+        "committed path must not contain a parent-traversal segment: {}",
+        out.path
+    );
     assert_eq!(std::fs::read(&out.path).unwrap(), b"hello");
     let manifests = list(home.path(), "activity-1").unwrap();
     assert_eq!(manifests.len(), 1);

@@ -5,11 +5,16 @@
     "approve": "Mover a Listo",
     "approveTooltip": "Mover a Listo",
     "renameTooltip": "Cambiar título",
-    "deleteTooltip": "Eliminar"
+    "deleteTooltip": "Eliminar",
+    "select": "Seleccionar misión",
+    "openTerminalFailed": "No se pudo abrir la terminal: {{error}}"
   },
   "deleteCard": {
     "titleWithName": "¿Eliminar \"{{name}}\"?",
     "description": "Este elemento y su historial se eliminarán de forma permanente."
+  },
+  "tags": {
+    "routine": "Rutina"
   },
   "empty": {
     "title": "Aún no hay conversaciones",
@@ -49,5 +54,49 @@
   },
   "selectedSkill": {
     "cancel": "Cerrar"
+  },
+  "bulk": {
+    "selected_one": "{{count}} seleccionada",
+    "selected_other": "{{count}} seleccionadas",
+    "moveTo": "Mover a",
+    "selectAll": "Seleccionar todo",
+    "archive": "Archivar",
+    "delete": "Eliminar",
+    "clear": "Quitar selección",
+    "cancel": "Cancelar",
+    "error": "No se pudieron actualizar las misiones seleccionadas: {{error}}",
+    "confirmMove": {
+      "title": "¿Mover misiones?",
+      "description_one": "¿Mover {{count}} misión a {{target}}?",
+      "description_other": "¿Mover {{count}} misiones a {{target}}?",
+      "action": "Mover"
+    },
+    "confirmArchive": {
+      "title": "¿Archivar misiones?",
+      "description_one": "¿Archivar {{count}} misión? Puedes reabrirla desde la pestaña Archivadas.",
+      "description_other": "¿Archivar {{count}} misiones? Puedes reabrirlas desde la pestaña Archivadas.",
+      "action": "Archivar"
+    },
+    "confirmDelete": {
+      "title": "¿Eliminar misiones?",
+      "description_one": "¿Eliminar de forma permanente {{count}} misión y su historial?",
+      "description_other": "¿Eliminar de forma permanente {{count}} misiones y su historial?",
+      "action": "Eliminar"
+    }
+  },
+  "doneArchive": {
+    "tooltip": "Archivar todo lo Listo",
+    "confirmTitle": "¿Archivar las misiones Listas?",
+    "confirmDescription_one": "¿Archivar {{count}} misión en Listo? Puedes reabrirla desde la pestaña Archivadas.",
+    "confirmDescription_other": "¿Archivar {{count}} misiones en Listo? Puedes reabrirlas desde la pestaña Archivadas.",
+    "confirmAction": "Archivar todo"
+  },
+  "archived": {
+    "emptyTitle": "No hay misiones archivadas",
+    "emptyDescription": "Las misiones archivadas aparecen aquí. Responde a una para reactivarla.",
+    "searchPlaceholder": "Buscar misiones archivadas"
+  },
+  "dnd": {
+    "moveError": "No se pudo mover la misión: {{error}}"
   }
 }

@@ -82,6 +82,23 @@ pub trait ProviderAdapter: Send + Sync + 'static {
     /// a different connect UX in that case rather than spawning the CLI.
     fn login_args(&self) -> Option<&'static [&'static str]>;
 
+    /// Argv for a *headless / device-code* login flow, when the provider's
+    /// CLI offers one distinct from [`Self::login_args`].
+    ///
+    /// Returns `None` by default: most providers' standard login already
+    /// works on a remote engine (Claude prints a paste-back code; Gemini
+    /// drives its own browser identity), so callers fall back to
+    /// [`Self::login_args`]. OpenAI overrides this because plain
+    /// `codex login` starts a `localhost:1455` loopback server and prints
+    /// an OAuth URL whose `redirect_uri` points back at that local port —
+    /// reachable from the desktop app (browser + engine share a machine)
+    /// but a dead end when the engine runs on a VPS and the browser is on
+    /// the user's laptop. Only `codex login --device-auth` (the OAuth
+    /// device-grant flow) completes across machines.
+    fn device_login_args(&self) -> Option<&'static [&'static str]> {
+        None
+    }
+
     /// Argv to pass to the CLI to launch a logout flow. `None` semantics
     /// match [`Self::login_args`].
     fn logout_args(&self) -> Option<&'static [&'static str]>;
@@ -142,6 +159,32 @@ pub trait ProviderAdapter: Send + Sync + 'static {
             cli_name: self.cli_name().into(),
             message: truncate_excerpt(stderr_excerpt),
         }
+    }
+
+    // -------------------------------------------------------------------
+    // Reasoning effort
+    // -------------------------------------------------------------------
+
+    /// Reasoning-effort levels this provider's CLI accepts, ordered
+    /// low→high. An empty slice means the provider has no effort control,
+    /// so the runner omits the flag entirely (e.g. Gemini).
+    ///
+    /// This is the provider-level *superset* the engine uses to validate
+    /// the agent's configured effort and to clamp it before spawning.
+    /// Per-model availability (e.g. Sonnet 4.6 has `max` but not `xhigh`)
+    /// is a frontend-picker concern — Claude self-clamps an unsupported
+    /// value down to its highest supported level, so the engine only needs
+    /// the union here. Codex has no such fallback, which is exactly why
+    /// `max` (an unknown variant to codex) is excluded from OpenAI's set.
+    fn effort_levels(&self) -> &'static [&'static str] {
+        &[]
+    }
+
+    /// Default reasoning effort applied when the agent hasn't configured a
+    /// value the provider accepts. `None` means "pass no effort flag".
+    /// When `Some`, the value MUST be a member of [`Self::effort_levels`].
+    fn default_effort(&self) -> Option<&'static str> {
+        None
     }
 }
 
@@ -223,6 +266,13 @@ impl Provider {
         self.0.login_args()
     }
 
+    /// Argv for a headless/device-code login, if this provider has one
+    /// distinct from [`Self::login_args`]. See
+    /// [`ProviderAdapter::device_login_args`].
+    pub fn device_login_args(self) -> Option<&'static [&'static str]> {
+        self.0.device_login_args()
+    }
+
     /// Argv for `<cli> <logout_args>`. `None` if this provider has no
     /// CLI logout flow.
     pub fn logout_args(self) -> Option<&'static [&'static str]> {
@@ -259,6 +309,18 @@ impl Provider {
         stderr_excerpt: &str,
     ) -> ProviderError {
         self.0.classify_spawn_failure(exit_code, stderr_excerpt)
+    }
+
+    /// Reasoning-effort levels this provider accepts. See
+    /// [`ProviderAdapter::effort_levels`].
+    pub fn effort_levels(self) -> &'static [&'static str] {
+        self.0.effort_levels()
+    }
+
+    /// Default reasoning effort for this provider. See
+    /// [`ProviderAdapter::default_effort`].
+    pub fn default_effort(self) -> Option<&'static str> {
+        self.0.default_effort()
     }
 }
 
@@ -394,5 +456,60 @@ mod tests {
     fn parse_gemini_alias() {
         assert_eq!(Provider::from_str("gemini").unwrap().id(), "gemini");
         assert_eq!(Provider::from_str("google").unwrap().id(), "gemini");
+    }
+
+    #[test]
+    fn effort_levels_are_provider_specific() {
+        let anthropic = Provider::from_str("anthropic").unwrap();
+        let openai = Provider::from_str("openai").unwrap();
+        let gemini = Provider::from_str("gemini").unwrap();
+
+        // Claude `--effort` accepts the full range (Opus 4.7/4.8); Claude
+        // self-clamps unsupported values per model.
+        assert_eq!(
+            anthropic.effort_levels().to_vec(),
+            vec!["low", "medium", "high", "xhigh", "max"]
+        );
+        // Codex `model_reasoning_effort` has no `max` variant — including it
+        // would be an "unknown variant" error with no CLI-side fallback.
+        assert_eq!(
+            openai.effort_levels().to_vec(),
+            vec!["low", "medium", "high", "xhigh"]
+        );
+        // Gemini CLI takes no effort flag.
+        assert!(gemini.effort_levels().is_empty());
+
+        // Every provider default must be a member of its own level set, and
+        // providers without effort control must have no default.
+        for p in [anthropic, openai] {
+            let d = p.default_effort().expect("effort provider has a default");
+            assert!(
+                p.effort_levels().contains(&d),
+                "{p} default {d} not in its effort_levels"
+            );
+        }
+        assert!(gemini.default_effort().is_none());
+    }
+
+    #[test]
+    fn device_login_args_only_for_openai() {
+        // Only codex needs a distinct headless flow — plain `codex login`
+        // uses a localhost loopback redirect that can't reach a remote
+        // engine. Claude's standard login already works headless (paste-back
+        // code) and Gemini drives its own browser identity, so neither
+        // exposes a device variant.
+        let openai = Provider::from_str("openai").unwrap();
+        assert_eq!(
+            openai.device_login_args().map(|a| a.to_vec()),
+            Some(vec!["login", "--device-auth", "-c", "model_reasoning_effort=high"])
+        );
+        assert!(Provider::from_str("anthropic")
+            .unwrap()
+            .device_login_args()
+            .is_none());
+        assert!(Provider::from_str("gemini")
+            .unwrap()
+            .device_login_args()
+            .is_none());
     }
 }

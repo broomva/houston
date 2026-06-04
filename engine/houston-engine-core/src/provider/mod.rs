@@ -17,7 +17,7 @@ mod login_relay;
 
 pub use gemini_credentials::set_gemini_api_key;
 pub use gemini_disconnect::disconnect_gemini;
-pub use login_relay::submit_login_code;
+pub use login_relay::{cancel_login, submit_login_code};
 
 use crate::error::{CoreError, CoreResult};
 use houston_terminal_manager::provider_auth::ProviderAuthState;
@@ -102,7 +102,19 @@ pub async fn check_status(provider: Provider) -> CoreResult<ProviderStatus> {
 /// status. This makes "click Connect → OAuth in browser → done" work
 /// for remote/headless engines (containers, Always-On) where the CLI
 /// can't open the user's browser itself.
-pub async fn launch_login(provider: Provider, sink: DynEventSink) -> CoreResult<()> {
+///
+/// `device_auth` selects the provider's headless device-code flow when
+/// it has one (only OpenAI/codex today — see
+/// [`Provider::device_login_args`]). Remote clients (webapp, mobile)
+/// set it because they can't receive the CLI's `localhost` OAuth
+/// callback. Providers without a device variant ignore it and use their
+/// standard login, which for Claude already completes headlessly via a
+/// paste-back code.
+pub async fn launch_login(
+    provider: Provider,
+    sink: DynEventSink,
+    device_auth: bool,
+) -> CoreResult<()> {
     // Remote providers (e.g. Life) have no CLI login flow — their auth
     // is managed by the runtime (a dev token in Stage 0; lifegw OAuth in
     // Stage 1). When the user clicks Connect, emit a synthetic "login
@@ -118,6 +130,7 @@ pub async fn launch_login(provider: Provider, sink: DynEventSink) -> CoreResult<
         });
         return Ok(());
     }
+
 
     // Gemini has no `gemini auth login` subcommand. Instead, gemini-cli
     // exposes an `authenticate` JSON-RPC method over its `--acp` mode
@@ -140,7 +153,7 @@ pub async fn launch_login(provider: Provider, sink: DynEventSink) -> CoreResult<
         path,
         args,
         shell_path,
-    } = login_command(provider)?;
+    } = login_command(provider, device_auth)?;
 
     let mut cmd = tokio::process::Command::new(&path);
     cmd.args(&args)
@@ -182,9 +195,12 @@ pub async fn launch_login(provider: Provider, sink: DynEventSink) -> CoreResult<
         }
     }
 
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| CoreError::Internal(format!("failed to spawn {cli_name} login: {e}")))?;
+    let mut child = cmd.spawn().map_err(|e| {
+        CoreError::Internal(
+            windows_bad_exe_message(cli_name, "login", &path, &e)
+                .unwrap_or_else(|| format!("failed to spawn {cli_name} login: {e}")),
+        )
+    })?;
 
     // Take stdin BEFORE the probe. `tokio::process::Child::wait` calls
     // `drop(self.stdin.take())` internally to avoid the classic
@@ -264,8 +280,17 @@ pub async fn launch_login(provider: Provider, sink: DynEventSink) -> CoreResult<
             })?;
             let stderr = child.stderr.take();
 
-            login_relay::insert_session(&provider_id, cli_name, stdin).await?;
-            login_relay::spawn_relay(provider_id, cli_name_owned, child, stdout, stderr, sink);
+            let registration = login_relay::insert_session(&provider_id, cli_name, stdin).await?;
+            login_relay::spawn_relay(
+                provider_id,
+                cli_name_owned,
+                child,
+                stdout,
+                stderr,
+                sink,
+                registration,
+                device_auth,
+            );
             Ok(())
         }
     }
@@ -334,9 +359,10 @@ pub async fn launch_logout(provider: Provider) -> CoreResult<()> {
                 "[houston:provider] {cli_name} logout failed at {}: {e}",
                 path.display()
             );
-            Err(CoreError::Internal(format!(
-                "{cli_name} logout failed: {e}"
-            )))
+            Err(CoreError::Internal(
+                windows_bad_exe_message(cli_name, "logout", &path, &e)
+                    .unwrap_or_else(|| format!("{cli_name} logout failed: {e}")),
+            ))
         }
         Err(_) => {
             tracing::warn!("[houston:provider] {cli_name} logout timed out after 10s");
@@ -355,10 +381,22 @@ struct ProviderCliCommand {
     shell_path: OsString,
 }
 
-fn login_command(provider: Provider) -> CoreResult<ProviderCliCommand> {
+/// Pick the argv for a login attempt: the provider's headless
+/// device-code variant when the caller asked for it AND the provider
+/// exposes one, otherwise the standard login argv. Every provider
+/// without a device variant (Claude, Gemini), and every non-device
+/// caller, falls through to `login_args`. Pure + path-independent so it
+/// can be unit-tested without a CLI on disk.
+fn select_login_args(provider: Provider, device_auth: bool) -> Option<&'static [&'static str]> {
+    device_auth
+        .then(|| provider.device_login_args())
+        .flatten()
+        .or_else(|| provider.login_args())
+}
+
+fn login_command(provider: Provider, device_auth: bool) -> CoreResult<ProviderCliCommand> {
     let resolved_path = provider.resolve().1;
-    let args = provider
-        .login_args()
+    let args = select_login_args(provider, device_auth)
         .ok_or_else(|| {
             CoreError::BadRequest(format!(
                 "{} has no CLI login flow. Connect via settings instead.",
@@ -445,6 +483,41 @@ fn find_git_bash_windows() -> Option<PathBuf> {
     None
 }
 
+/// Map a Windows `CreateProcess` *spawn* failure to an actionable message
+/// when the resolved binary isn't a valid executable for this machine
+/// (os error 193, `ERROR_BAD_EXE_FORMAT`). Returns `None` for every other
+/// error code and on non-Windows so callers keep their own wording.
+///
+/// Distinct from [`decorate_windows_exit`], which explains NT status codes
+/// from a process that *did* spawn and then exited. 193 happens before the
+/// process ever starts — the file is a wrong-architecture PE, a corrupted
+/// binary, or a non-PE script the CLI resolver let through. Without this the
+/// user only sees the raw "%1 is not a valid Win32 application" string with
+/// no path and no next step (issue #213).
+fn windows_bad_exe_message(
+    cli_name: &str,
+    action: &str,
+    path: &std::path::Path,
+    e: &std::io::Error,
+) -> Option<String> {
+    #[cfg(target_os = "windows")]
+    {
+        if e.raw_os_error() == Some(193) {
+            return Some(format!(
+                "{cli_name} {action}: {} is not a valid application for this PC \
+                 (os error 193). It may have been built for a different processor \
+                 or be damaged. Reinstall Houston to restore the bundled {cli_name}.",
+                path.display()
+            ));
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (cli_name, action, path, e);
+    }
+    None
+}
+
 /// Turn a cryptic Windows process exit (e.g. `0xc000001d`) into a
 /// human-actionable error message. On non-Windows or unrecognized
 /// codes we return the original status verbatim. Kept in sync with
@@ -487,6 +560,28 @@ mod tests {
         assert!(parse("nonexistent-provider").is_err());
         assert!(parse("anthropic").is_ok());
         assert!(parse("openai").is_ok());
+    }
+
+    #[test]
+    fn bad_exe_message_is_none_for_non_193_errors() {
+        // os error 2 (ENOENT) must keep the caller's own wording, on any
+        // platform — only 193 gets the actionable rewrite.
+        let e = std::io::Error::from_raw_os_error(2);
+        let path = PathBuf::from("/install/bin/codex.exe");
+        assert!(windows_bad_exe_message("codex", "login", &path, &e).is_none());
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn bad_exe_message_decorates_193() {
+        let e = std::io::Error::from_raw_os_error(193);
+        let path = PathBuf::from(r"C:\Program Files\Houston\bin\codex.exe");
+        let msg = windows_bad_exe_message("codex", "login", &path, &e)
+            .expect("os error 193 should be decorated");
+        assert!(msg.contains("os error 193"), "got: {msg}");
+        assert!(msg.contains("codex"), "got: {msg}");
+        assert!(msg.contains("not a valid application"), "got: {msg}");
+        assert!(msg.contains("codex.exe"), "should name the binary path: {msg}");
     }
 
     #[test]
@@ -537,6 +632,28 @@ mod tests {
             command.args,
             vec!["login", "-c", "model_reasoning_effort=high"]
         );
+    }
+
+    #[test]
+    fn select_login_args_codex_switches_to_device_auth() {
+        let openai = parse("openai").unwrap();
+        // Standard flow → loopback `codex login`.
+        assert_eq!(select_login_args(openai, false), openai.login_args());
+        // Device flow → `codex login --device-auth`.
+        assert_eq!(
+            select_login_args(openai, true).map(|a| a.to_vec()),
+            Some(vec!["login", "--device-auth", "-c", "model_reasoning_effort=high"])
+        );
+    }
+
+    #[test]
+    fn select_login_args_claude_ignores_device_auth() {
+        // Claude has no device variant; its standard login already works
+        // headless (paste-back code), so device_auth=true must fall back to
+        // the normal argv rather than erroring.
+        let anthropic = parse("anthropic").unwrap();
+        assert_eq!(select_login_args(anthropic, true), anthropic.login_args());
+        assert_eq!(select_login_args(anthropic, false), anthropic.login_args());
     }
 
     #[test]

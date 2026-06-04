@@ -1,6 +1,6 @@
 [package]
 name = "houston-claude-hooks"
-version = "0.4.12"
+version = "0.4.17"
 edition = "2021"
 description = "Install/uninstall Houston-managed hooks in Claude Code's settings.json (Phase 7 of RFC #248)"
 license = "MIT"

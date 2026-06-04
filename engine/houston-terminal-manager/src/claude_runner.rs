@@ -1,7 +1,8 @@
-use super::types::SessionStatus;
+use super::types::{FeedItem, SessionStatus};
 use crate::claude_install_path;
 use crate::cli_process::{run_cli_process, CliRunOutcome};
 use crate::provider_error::MALFORMED_PROVIDER_JSON_MESSAGE;
+use crate::provider_error_kind::ProviderError;
 use crate::session_update::SessionUpdate;
 use crate::Provider;
 use std::ffi::OsString;
@@ -36,6 +37,7 @@ pub(crate) async fn spawn_claude(
     provider: Provider,
     prompt: String,
     resume_session_id: Option<String>,
+    resume_fallback_prompt: Option<String>,
     working_dir: Option<std::path::PathBuf>,
     model: Option<String>,
     effort: Option<String>,
@@ -45,8 +47,10 @@ pub(crate) async fn spawn_claude(
     disable_all_tools: bool,
 ) {
     tracing::info!(
-        "[houston:session] spawning claude -p (resume={:?})",
-        resume_session_id
+        "[houston:session] spawning claude -p (resume={:?}, model={:?}, effort={:?})",
+        resume_session_id,
+        model,
+        effort,
     );
 
     if let Some(ref dir) = working_dir {
@@ -72,15 +76,16 @@ pub(crate) async fn spawn_claude(
         disable_all_tools,
     );
     let outcome = run_cli_process(tx, &mut cmd, &prompt, provider).await;
-    if should_retry_malformed_provider_json(outcome, resume_session_id.as_deref()) {
+    if should_retry_fresh_after_resume_failure(outcome, resume_session_id.as_deref()) {
         tracing::warn!(
-            "[houston:session] claude resume failed with malformed provider JSON; retrying fresh"
+            "[houston:session] claude resume failed ({outcome:?}); retrying fresh"
         );
         let _ = tx.send(SessionUpdate::ResumeInvalid);
+        let retry_prompt = fresh_retry_prompt(&prompt, resume_fallback_prompt.as_deref());
         retry_fresh(
             tx,
             provider,
-            &prompt,
+            retry_prompt,
             working_dir.as_deref(),
             model.as_deref(),
             effort.as_deref(),
@@ -91,7 +96,24 @@ pub(crate) async fn spawn_claude(
         )
         .await;
     } else if outcome == CliRunOutcome::ProviderRequestMalformedJson {
+        // Malformed-JSON without a resume to clear: tell the user
+        // explicitly so they can edit the prompt and try again.
         send_malformed_provider_json_status(tx);
+    } else if outcome == CliRunOutcome::ClaudeResumeCorrupted {
+        // Corrupted-resume signature fired but we had no `--resume` to
+        // strip. That means claude itself bombed at startup for some
+        // unrelated reason — surface a typed `SpawnFailed` so the user
+        // sees a "Report bug" card instead of a silent hang.
+        let _ = tx.send(SessionUpdate::Feed(FeedItem::ProviderError(
+            ProviderError::SpawnFailed {
+                provider: provider.id().to_string(),
+                cli_name: provider.cli_name().to_string(),
+                message: "claude exited at startup with error_during_execution".to_string(),
+            },
+        )));
+        let _ = tx.send(SessionUpdate::Status(SessionStatus::Error(
+            "claude failed to start".to_string(),
+        )));
     }
 }
 
@@ -123,6 +145,23 @@ async fn retry_fresh(
     let retry_outcome = run_cli_process(tx, &mut fresh_cmd, prompt, provider).await;
     if retry_outcome == CliRunOutcome::ProviderRequestMalformedJson {
         send_malformed_provider_json_status(tx);
+    } else if retry_outcome == CliRunOutcome::ClaudeResumeCorrupted {
+        // Defensive: the fresh retry has no `--resume`, so the
+        // corrupted-resume signature firing here means claude is
+        // crashing at startup for an unrelated reason. cli_process
+        // skipped its normal failed-exit emission, so surface the
+        // failure ourselves rather than leaving the user staring at a
+        // spinner.
+        let _ = tx.send(SessionUpdate::Feed(FeedItem::ProviderError(
+            ProviderError::SpawnFailed {
+                provider: provider.id().to_string(),
+                cli_name: provider.cli_name().to_string(),
+                message: "claude exited at startup with error_during_execution".to_string(),
+            },
+        )));
+        let _ = tx.send(SessionUpdate::Status(SessionStatus::Error(
+            "claude failed to start".to_string(),
+        )));
     }
 }
 
@@ -188,11 +227,31 @@ fn configure_claude_command(
     }
 }
 
-fn should_retry_malformed_provider_json(
+/// Two failure modes share the "retry without `--resume`" recovery path:
+/// 1. `ProviderRequestMalformedJson` — Anthropic API rejected the resumed
+///    transcript as having an unpaired UTF-16 surrogate (a single bad
+///    emoji or pasted character anywhere in history poisons it forever).
+/// 2. `ClaudeResumeCorrupted` — the on-disk transcript JSONL at
+///    `~/.claude/projects/<encoded-cwd>/<session-id>.jsonl` is structurally
+///    broken (truncated trailing line, dangling tool_use without
+///    tool_result). The CLI crashes before contacting the API.
+///
+/// In both cases the cure is the same: clear the persisted session id,
+/// re-spawn `claude -p` without `--resume`, and let the user continue.
+/// Without a resume id there is nothing to strip — fall through to the
+/// outer error-surfacing branches so the user still gets feedback.
+fn should_retry_fresh_after_resume_failure(
     outcome: CliRunOutcome,
     resume_session_id: Option<&str>,
 ) -> bool {
-    outcome == CliRunOutcome::ProviderRequestMalformedJson && resume_session_id.is_some()
+    matches!(
+        outcome,
+        CliRunOutcome::ProviderRequestMalformedJson | CliRunOutcome::ClaudeResumeCorrupted
+    ) && resume_session_id.is_some()
+}
+
+fn fresh_retry_prompt<'a>(prompt: &'a str, resume_fallback_prompt: Option<&'a str>) -> &'a str {
+    resume_fallback_prompt.unwrap_or(prompt)
 }
 
 fn send_malformed_provider_json_status(tx: &mpsc::UnboundedSender<SessionUpdate>) {
@@ -207,26 +266,52 @@ mod tests {
 
     #[test]
     fn retries_malformed_provider_json_only_for_resume() {
-        assert!(should_retry_malformed_provider_json(
+        assert!(should_retry_fresh_after_resume_failure(
             CliRunOutcome::ProviderRequestMalformedJson,
             Some("claude-session-id"),
         ));
-        assert!(!should_retry_malformed_provider_json(
+        assert!(!should_retry_fresh_after_resume_failure(
             CliRunOutcome::ProviderRequestMalformedJson,
             None,
         ));
     }
 
     #[test]
+    fn retries_corrupted_resume_only_when_resume_id_present() {
+        assert!(should_retry_fresh_after_resume_failure(
+            CliRunOutcome::ClaudeResumeCorrupted,
+            Some("claude-session-id"),
+        ));
+        // No resume to strip — the runner surfaces a SpawnFailed card instead.
+        assert!(!should_retry_fresh_after_resume_failure(
+            CliRunOutcome::ClaudeResumeCorrupted,
+            None,
+        ));
+    }
+
+    #[test]
     fn does_not_retry_other_outcomes() {
-        assert!(!should_retry_malformed_provider_json(
+        assert!(!should_retry_fresh_after_resume_failure(
             CliRunOutcome::Failed,
             Some("claude-session-id"),
         ));
-        assert!(!should_retry_malformed_provider_json(
+        assert!(!should_retry_fresh_after_resume_failure(
             CliRunOutcome::Completed,
             Some("claude-session-id"),
         ));
+        assert!(!should_retry_fresh_after_resume_failure(
+            CliRunOutcome::CodexResumeMissing,
+            Some("claude-session-id"),
+        ));
+    }
+
+    #[test]
+    fn fresh_retry_uses_recovery_prompt_when_available() {
+        assert_eq!(
+            fresh_retry_prompt("latest", Some("recovered history + latest")),
+            "recovered history + latest"
+        );
+        assert_eq!(fresh_retry_prompt("latest", None), "latest");
     }
 
     fn collect_args(cmd: &Command) -> Vec<String> {

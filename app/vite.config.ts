@@ -45,6 +45,18 @@ export default defineConfig(({ mode }) => {
       __SUPABASE_ANON_KEY__: JSON.stringify(env.SUPABASE_ANON_KEY ?? ""),
       __HOUSTON_AUTH_STORAGE_MODE__: JSON.stringify(authStorageMode),
       __HOUSTON_AUTH_STORAGE_SCOPE__: JSON.stringify(authStorageScope),
+      __SENTRY_DSN__: JSON.stringify(env.SENTRY_DSN ?? ""),
+    },
+    build: {
+      // "hidden" emits .map files next to bundled JS but skips the
+      // //# sourceMappingURL= comment, so production users can't reconstruct
+      // source via DevTools. The release.yml CI step uploads these maps to
+      // Sentry tagged `houston-app@<version>` (the same release reported at
+      // runtime by sentry::release_name!() in lib.rs and the JS RELEASE in
+      // lib/sentry.ts); Sentry resolves frames to source by release + file
+      // path. Maps are uploaded ONLY by that CI release step — local builds
+      // emit maps but never upload them.
+      sourcemap: "hidden",
     },
     clearScreen: false,
     // Exclude workspace packages from Vite's dep pre-bundling so live edits

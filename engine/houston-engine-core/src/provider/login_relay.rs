@@ -4,15 +4,22 @@
 //! deployment (Docker container, Always-On VPS, future Cloud), the
 //! provider CLI (`claude auth login`, `codex login`) can't open the
 //! user's browser — the browser lives on a different machine. The
-//! CLI prints a fallback OAuth URL to stdout and waits for the user
-//! to paste the verification code on stdin. This module surfaces
-//! that URL to the frontend (via [`HoustonEvent::ProviderLoginUrl`])
-//! and writes the code the user submitted back to the CLI's stdin
-//! (via [`submit_login_code`]). When the CLI finally exits — either
-//! cleanly after exchanging the code, or with an error — the relay
-//! task emits [`HoustonEvent::ProviderLoginComplete`] so the
-//! frontend can close the sign-in dialog and refresh
-//! `providerStatus`.
+//! CLI prints a sign-in URL to stdout; this module surfaces it to the
+//! frontend (via [`HoustonEvent::ProviderLoginUrl`]). Completion takes
+//! one of two shapes:
+//!
+//!  * **Paste-back** (`claude auth login`): the CLI waits for the user
+//!    to paste a verification code on stdin. We write the code the user
+//!    submitted back via [`submit_login_code`].
+//!  * **Device-grant** (`codex login --device-auth`): the CLI also
+//!    prints a one-time code; the user enters THAT code on the
+//!    provider's page and the CLI polls + completes itself. We scan
+//!    stdout for the code and re-emit `ProviderLoginUrl` carrying it
+//!    (no stdin write — there's nothing to paste back).
+//!
+//! When the CLI finally exits — cleanly after auth, or with an error —
+//! the relay task emits [`HoustonEvent::ProviderLoginComplete`] so the
+//! frontend can close the sign-in dialog and refresh `providerStatus`.
 //!
 //! Same machinery handles desktop too: claude prints the URL
 //! unconditionally, but completes via its own local callback before
@@ -25,11 +32,12 @@ use houston_ui_events::{DynEventSink, HoustonEvent};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, ChildStdout};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Notify};
 
 /// Hard ceiling on a single OAuth login subprocess lifetime. If the
 /// CLI hasn't exited by then (e.g. user abandoned the browser flow
@@ -42,7 +50,8 @@ const LOGIN_SESSION_TIMEOUT: Duration = Duration::from_secs(600);
 /// `"anthropic"`, `"openai"`). Single-entry-per-provider by design:
 /// [`insert_session`] rejects a second concurrent attempt with
 /// `BadRequest` so a fast double-click can't orphan a subprocess.
-/// Removed by [`relay_login_output`] when the child exits.
+/// Removed by [`relay_login_output`] when the child exits, or eagerly
+/// by [`cancel_login`] so an abandoned sign-in can be retried at once.
 ///
 /// `stdin` is wrapped in its own `Arc<Mutex<_>>` so
 /// [`submit_login_code`] can clone the handle out of this map under
@@ -52,8 +61,36 @@ const LOGIN_SESSION_TIMEOUT: Duration = Duration::from_secs(600);
 static LOGIN_SESSIONS: Lazy<Mutex<HashMap<String, LoginSession>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
+/// Monotonic session token source. Each [`insert_session`] mints a
+/// fresh token so the relay task can prove ownership of the map entry
+/// before removing it — otherwise a [`cancel_login`] followed by an
+/// immediate re-`Connect` (new session, same provider id) could be
+/// evicted by the *previous* relay's end-of-life cleanup.
+static SESSION_SEQ: AtomicU64 = AtomicU64::new(0);
+
 struct LoginSession {
     stdin: Arc<Mutex<ChildStdin>>,
+    /// Fired by [`cancel_login`] to abort an in-flight browser sign-in.
+    /// The relay task holds its own `Arc` clone and selects on it.
+    cancel: Arc<Notify>,
+    /// Identifies which relay owns this map entry (see [`SESSION_SEQ`]).
+    token: u64,
+}
+
+/// Handed back by [`insert_session`] to the spawn site so the relay
+/// task gets the same cancel handle + token stored in the map.
+#[derive(Debug)]
+pub(super) struct RelayRegistration {
+    cancel: Arc<Notify>,
+    token: u64,
+}
+
+/// How a relay's lifetime ended, distinguishing a user-initiated
+/// [`cancel_login`] (benign — no error toast) from the CLI exiting on
+/// its own (success or real failure).
+enum RelayOutcome {
+    Exited(std::io::Result<std::process::ExitStatus>),
+    Cancelled,
 }
 
 /// Regex over a single line of CLI stdout, looking for an HTTPS URL
@@ -81,6 +118,52 @@ fn extract_login_url(line: &str) -> Option<String> {
     Some(trimmed.to_string())
 }
 
+/// Regex over a single line of CLI stdout, looking for the one-time
+/// device-authorization code codex prints under `--device-auth` (e.g.
+/// the `ABCD-EFGHI` on its own line beneath "Enter this one-time
+/// code"). The code is one or more hyphen-separated groups of uppercase
+/// letters/digits — distinctive enough that it won't collide with
+/// codex's prose lines or the verification URL (neither contains an
+/// uppercase hyphenated token).
+static DEVICE_CODE_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"\b[A-Z0-9]{3,}(?:-[A-Z0-9]{3,})+\b").expect("device code regex must compile")
+});
+
+/// Extract codex's one-time device code from a stdout line. Only
+/// consulted in device-auth mode (see [`relay_login_output`]), so the
+/// standard paste-back flow (Claude) never runs it and can't be tripped
+/// by a stray uppercase token in claude's output.
+fn extract_device_user_code(line: &str) -> Option<String> {
+    DEVICE_CODE_RE.find(line).map(|m| m.as_str().to_string())
+}
+
+/// Regex over ANSI / VT escape sequences. codex emits SGR colour codes
+/// even when its stdout is a pipe (not a TTY): the verification URL and
+/// the one-time device code both arrive wrapped like
+/// `\x1b[94m<value>\x1b[0m`. The opening sequence ends in `m` — a word
+/// character — so it sits flush against the device code and defeats the
+/// `\b` word-boundary anchor in [`DEVICE_CODE_RE`]; without stripping, the
+/// code never matches, [`relay_login_output`] never re-emits
+/// `ProviderLoginUrl` with `user_code`, and the headless dialog wrongly
+/// falls back to the Claude paste-back input (codex device-auth has
+/// nothing to paste back). Stripping also keeps a coloured URL from ever
+/// carrying stray escape bytes into [`extract_login_url`].
+static ANSI_ESCAPE_RE: Lazy<Regex> = Lazy::new(|| {
+    // CSI form: ESC '[' params([0-9;?]) intermediates([ -/]) final([@-~]).
+    // Covers SGR colour (final `m`), cursor moves, etc. — everything codex
+    // prints. The character ranges are spelled with ASCII bytes so the
+    // pattern stays obvious: ` -/` is 0x20..=0x2F, `@-~` is 0x40..=0x7E.
+    Regex::new(r"\x1b\[[0-9;?]*[ -/]*[@-~]").expect("ansi escape regex must compile")
+});
+
+/// Remove ANSI escape sequences from a CLI stdout line, borrowing the
+/// input untouched when it carries none. Run before the URL / device-code
+/// regexes — see [`ANSI_ESCAPE_RE`] for why codex's colourized output
+/// would otherwise hide the device code.
+fn strip_ansi(line: &str) -> std::borrow::Cow<'_, str> {
+    ANSI_ESCAPE_RE.replace_all(line, "")
+}
+
 /// Register a new login session, taking ownership of the CLI's
 /// stdin handle. Returns `BadRequest` if a session is already in
 /// flight for the same provider — the caller should kill its own
@@ -89,27 +172,69 @@ pub(super) async fn insert_session(
     provider_id: &str,
     cli_name: &str,
     stdin: ChildStdin,
-) -> CoreResult<()> {
+) -> CoreResult<RelayRegistration> {
     let mut sessions = LOGIN_SESSIONS.lock().await;
     if sessions.contains_key(provider_id) {
         return Err(CoreError::BadRequest(format!(
-            "{cli_name} sign-in is already pending. Finish the open sign-in or restart Houston to retry.",
+            "{cli_name} sign-in is already pending. Finish the open sign-in or cancel it to retry.",
         )));
     }
+    let cancel = Arc::new(Notify::new());
+    let token = SESSION_SEQ.fetch_add(1, Ordering::Relaxed);
     sessions.insert(
         provider_id.to_string(),
         LoginSession {
             stdin: Arc::new(Mutex::new(stdin)),
+            cancel: Arc::clone(&cancel),
+            token,
         },
     );
+    Ok(RelayRegistration { cancel, token })
+}
+
+/// Cancel an in-flight OAuth login. Removes the map entry **eagerly**
+/// (under the lock) so a follow-up `Connect` click isn't rejected by
+/// [`insert_session`]'s already-pending guard, then signals the relay
+/// task — which holds its own `Arc<Notify>` clone — to kill the
+/// subprocess and emit a benign [`HoustonEvent::ProviderLoginComplete`]
+/// (`success: false`, `error: None`). Idempotent: cancelling when no
+/// session is pending is a no-op success, because the goal state — no
+/// pending sign-in — already holds (e.g. the flow completed between the
+/// user opening the browser and giving up).
+pub async fn cancel_login(provider: Provider) -> CoreResult<()> {
+    cancel_login_inner(provider.id(), provider.cli_name()).await
+}
+
+/// Id-based core of [`cancel_login`], split out so unit tests can drive
+/// it with a synthetic provider id that won't collide with the real
+/// providers other tests touch on the shared [`LOGIN_SESSIONS`] map.
+async fn cancel_login_inner(provider_id: &str, cli_name: &str) -> CoreResult<()> {
+    let session = {
+        let mut sessions = LOGIN_SESSIONS.lock().await;
+        sessions.remove(provider_id)
+    };
+    match session {
+        Some(session) => {
+            session.cancel.notify_one();
+            tracing::info!("[houston:provider] {cli_name} login cancel requested");
+        }
+        None => {
+            tracing::debug!("[houston:provider] cancel_login: no pending {cli_name} session");
+        }
+    }
     Ok(())
 }
 
 /// Spawn the background task that drives a single login session:
-/// stream stdout looking for the OAuth URL, drain stderr into a
-/// buffer for the failure path, and wait for the child to exit
-/// (with a hard timeout). Emits `ProviderLoginUrl` once and
+/// stream stdout looking for the OAuth URL (and, in device-auth mode,
+/// the one-time code), drain stderr into a buffer for the failure path,
+/// and wait for the child to exit (with a hard timeout). Emits
+/// `ProviderLoginUrl` (once, or twice for a device-grant code) and
 /// `ProviderLoginComplete` exactly once.
+///
+/// `device_auth` mirrors the flag the caller passed to
+/// [`crate::provider::launch_login`]: when set, the relay also scans for
+/// codex's device code and re-emits `ProviderLoginUrl` carrying it.
 pub(super) fn spawn_relay(
     provider_id: String,
     cli_name: String,
@@ -117,9 +242,21 @@ pub(super) fn spawn_relay(
     stdout: ChildStdout,
     stderr: Option<tokio::process::ChildStderr>,
     sink: DynEventSink,
+    registration: RelayRegistration,
+    device_auth: bool,
 ) {
     tokio::spawn(async move {
-        relay_login_output(provider_id, cli_name, child, stdout, stderr, sink).await;
+        relay_login_output(
+            provider_id,
+            cli_name,
+            child,
+            stdout,
+            stderr,
+            sink,
+            registration,
+            device_auth,
+        )
+        .await;
     });
 }
 
@@ -130,7 +267,10 @@ async fn relay_login_output(
     stdout: ChildStdout,
     stderr: Option<tokio::process::ChildStderr>,
     sink: DynEventSink,
+    registration: RelayRegistration,
+    device_auth: bool,
 ) {
+    let RelayRegistration { cancel, token } = registration;
     // Drain stderr in a sibling task so a verbose CLI can't fill the
     // 64KB stderr pipe buffer and deadlock the child on write.
     // Captured stderr is appended to the `ProviderLoginComplete`
@@ -146,28 +286,77 @@ async fn relay_login_output(
     });
 
     let mut url_emitted = false;
+    // Buffered first URL + whether we've emitted the device code yet.
+    // codex's `--device-auth` prints the verification URL first, then the
+    // one-time code a few lines later; we hold the URL so the code-bearing
+    // re-emit can carry both.
+    let mut login_url: Option<String> = None;
+    let mut code_emitted = false;
     let mut reader = BufReader::new(stdout).lines();
 
     // Outer timeout protects against a CLI that keeps stdout open
     // and never exits (user abandoned the browser flow, claude
     // wedged on a network call, …). When the timeout fires we kill
-    // the child so its `wait()` resolves quickly below.
+    // the child so its `wait()` resolves quickly below. A user
+    // [`cancel_login`] takes the fast path through the `cancel` arm.
     let work = async {
         loop {
             tokio::select! {
+                _ = cancel.notified() => {
+                    tracing::info!(
+                        "[houston:provider] {cli_name} login cancelled — killing subprocess"
+                    );
+                    let _ = child.kill().await;
+                    // Reap so the OS doesn't keep a zombie around.
+                    let _ = child.wait().await;
+                    return RelayOutcome::Cancelled;
+                }
                 line = reader.next_line() => {
                     match line {
                         Ok(Some(line)) => {
+                            // codex colourizes stdout even over a pipe, so the
+                            // URL and device code arrive wrapped in SGR escape
+                            // sequences. Strip them before matching — the
+                            // trailing `m` of `\x1b[94m` otherwise defeats the
+                            // `\b` anchor in DEVICE_CODE_RE and the code is
+                            // never surfaced. See `strip_ansi`.
+                            let clean = strip_ansi(&line);
+                            let clean = clean.as_ref();
                             if !url_emitted {
-                                if let Some(url) = extract_login_url(&line) {
+                                if let Some(url) = extract_login_url(clean) {
                                     tracing::info!(
                                         "[houston:provider] {cli_name} login URL surfaced: {url}"
                                     );
                                     sink.emit(HoustonEvent::ProviderLoginUrl {
                                         provider: provider_id.clone(),
-                                        url,
+                                        url: url.clone(),
+                                        user_code: None,
                                     });
+                                    login_url = Some(url);
                                     url_emitted = true;
+                                }
+                            }
+                            // Device-auth (codex `--device-auth`) prints a
+                            // one-time code on a later line. Re-emit
+                            // ProviderLoginUrl carrying both the buffered URL
+                            // and the code so the dialog switches from "open
+                            // the link" to "enter this code on the page". The
+                            // code value is never logged. Claude's paste-back
+                            // flow has device_auth = false and never reaches
+                            // here.
+                            if device_auth && !code_emitted {
+                                if let (Some(url), Some(code)) =
+                                    (login_url.as_ref(), extract_device_user_code(clean))
+                                {
+                                    tracing::info!(
+                                        "[houston:provider] {cli_name} device login code surfaced"
+                                    );
+                                    sink.emit(HoustonEvent::ProviderLoginUrl {
+                                        provider: provider_id.clone(),
+                                        url: url.clone(),
+                                        user_code: Some(code),
+                                    });
+                                    code_emitted = true;
                                 }
                             }
                         }
@@ -181,17 +370,17 @@ async fn relay_login_output(
                     }
                 }
                 exit = child.wait() => {
-                    return Ok::<_, ()>(exit);
+                    return RelayOutcome::Exited(exit);
                 }
             }
         }
         // Stdout EOF without seeing the child exit — wait for it
         // explicitly so we still observe the exit status.
-        Ok(child.wait().await)
+        RelayOutcome::Exited(child.wait().await)
     };
 
     let (success, error) = match tokio::time::timeout(LOGIN_SESSION_TIMEOUT, work).await {
-        Ok(Ok(Ok(status))) => {
+        Ok(RelayOutcome::Exited(Ok(status))) => {
             tracing::info!("[houston:provider] {cli_name} login exited: {status}");
             let stderr_text = drain_stderr(stderr_handle).await;
             (
@@ -207,7 +396,7 @@ async fn relay_login_output(
                 },
             )
         }
-        Ok(Ok(Err(e))) => {
+        Ok(RelayOutcome::Exited(Err(e))) => {
             tracing::warn!("[houston:provider] {cli_name} login wait failed: {e}");
             let stderr_text = drain_stderr(stderr_handle).await;
             (
@@ -219,9 +408,14 @@ async fn relay_login_output(
                 )),
             )
         }
-        Ok(Err(())) => unreachable!(
-            "the inner async block returns Ok variants only — Err(()) is just for type inference"
-        ),
+        Ok(RelayOutcome::Cancelled) => {
+            // User abandoned the sign-in. Drain stderr so the sibling
+            // task joins, but DON'T surface it — a deliberate cancel
+            // isn't an error, so `error: None` keeps the frontend from
+            // toasting. The spinner just clears and the card re-arms.
+            drain_stderr(stderr_handle).await;
+            (false, None)
+        }
         Err(_) => {
             tracing::warn!(
                 "[houston:provider] {cli_name} login timed out after {}s — killing subprocess",
@@ -240,7 +434,16 @@ async fn relay_login_output(
         }
     };
 
-    LOGIN_SESSIONS.lock().await.remove(&provider_id);
+    // Remove the map entry only if it's still *ours*. A `cancel_login`
+    // already removed it eagerly, and a fresh `Connect` may have
+    // inserted a brand-new session under the same provider id — token
+    // equality stops us from evicting that newcomer.
+    {
+        let mut sessions = LOGIN_SESSIONS.lock().await;
+        if sessions.get(&provider_id).map(|s| s.token) == Some(token) {
+            sessions.remove(&provider_id);
+        }
+    }
     sink.emit(HoustonEvent::ProviderLoginComplete {
         provider: provider_id,
         success,
@@ -307,6 +510,47 @@ mod tests {
     use super::*;
     use crate::provider::parse;
 
+    /// A child that blocks without writing stdout, standing in for a provider
+    /// CLI waiting on the user. Cross-platform: `cat` (Unix) and `findstr`
+    /// (Windows, always in System32) both block reading the piped stdin we hold
+    /// open; neither writes stdout while no input arrives (these tests never
+    /// write the child's stdin). Replaces a Unix-only `sleep 60`, which fails
+    /// with "program not found" on Windows.
+    fn idle_child_command() -> tokio::process::Command {
+        #[cfg(windows)]
+        {
+            let mut c = tokio::process::Command::new("findstr");
+            c.arg("HoustonIdleNoMatch");
+            c
+        }
+        #[cfg(not(windows))]
+        {
+            tokio::process::Command::new("cat")
+        }
+    }
+
+    /// A child that emits the bytes of `file_name` (resolved in `dir`) verbatim
+    /// then exits: `cat` (Unix) / `cmd /C type` (Windows). Routing the canned
+    /// output through a file preserves the SGR/ESC bytes and newlines a portable
+    /// `echo` cannot emit, and a bare filename with `cwd = dir` sidesteps path
+    /// quoting. Replaces a Unix-only `printf`.
+    fn emit_file_command(dir: &std::path::Path, file_name: &str) -> tokio::process::Command {
+        #[cfg(windows)]
+        let mut cmd = {
+            let mut c = tokio::process::Command::new("cmd");
+            c.args(["/C", "type", file_name]);
+            c
+        };
+        #[cfg(not(windows))]
+        let mut cmd = {
+            let mut c = tokio::process::Command::new("cat");
+            c.arg(file_name);
+            c
+        };
+        cmd.current_dir(dir);
+        cmd
+    }
+
     #[test]
     fn extract_url_from_claude_oauth_line() {
         let line = "If the browser didn't open, visit: \
@@ -352,6 +596,87 @@ mod tests {
         );
     }
 
+    #[test]
+    fn extract_device_code_from_codex_device_auth_output() {
+        // Verbatim shape of `codex login --device-auth` stdout — the URL
+        // and the one-time code land on separate, indented lines.
+        assert!(extract_device_user_code(
+            "1. Open this link in your browser and sign in to your account"
+        )
+        .is_none());
+        // The verification URL line must not be misread as a code (it has
+        // no uppercase hyphenated token).
+        assert!(extract_device_user_code("   https://auth.openai.com/codex/device").is_none());
+        // The cue line carries no code.
+        assert!(
+            extract_device_user_code("2. Enter this one-time code (expires in 15 minutes)")
+                .is_none()
+        );
+        // The code line yields the code.
+        assert_eq!(extract_device_user_code("   ABCD-EFGHI").unwrap(), "ABCD-EFGHI");
+    }
+
+    #[test]
+    fn extract_device_code_ignores_prose_and_lowercase() {
+        // The pattern needs at least one hyphen-joined uppercase/digit
+        // group, so prose never matches — including "ChatGPT", whose "GPT"
+        // run has no following `-XXX` group.
+        assert!(extract_device_user_code("Follow these steps to sign in with ChatGPT").is_none());
+        assert!(extract_device_user_code("using device code authorization:").is_none());
+        assert!(extract_device_user_code("HELLO").is_none()); // single group, no hyphen
+        assert!(extract_device_user_code("abcd-efghi").is_none()); // lowercase
+        // Some device codes chunk into three groups — still one token.
+        assert_eq!(
+            extract_device_user_code("code: WDJB-MJHT-1234 now").unwrap(),
+            "WDJB-MJHT-1234"
+        );
+    }
+
+    #[test]
+    fn strip_ansi_removes_sgr_colour_codes() {
+        // Verbatim wrappers from codex 0.133 stdout.
+        assert_eq!(strip_ansi("   \u{1b}[94mRH7H-TS5DE\u{1b}[0m"), "   RH7H-TS5DE");
+        assert_eq!(
+            strip_ansi("\u{1b}[90mOpenAI's command-line coding agent\u{1b}[0m"),
+            "OpenAI's command-line coding agent"
+        );
+        // Multi-parameter SGR (`\x1b[31;1m`) is stripped too.
+        assert_eq!(strip_ansi("\u{1b}[31;1mError\u{1b}[0m"), "Error");
+        // A clean line is returned untouched (borrowed, not reallocated).
+        assert!(matches!(strip_ansi("plain line"), std::borrow::Cow::Borrowed("plain line")));
+    }
+
+    #[test]
+    fn extract_device_code_needs_ansi_stripped_first() {
+        // The exact byte shape `codex login --device-auth` (v0.133) prints
+        // for the one-time code: an SGR colour wrapper whose opening
+        // `\x1b[94m` ends in `m`, flush against the code. Matching the raw
+        // line fails (no `\b` before the code); stripping ANSI first is what
+        // lets the device-grant flow surface the code instead of falling
+        // back to the paste-back input. Regression guard for that bug.
+        let raw = "   \u{1b}[94mRH7H-TS5DE\u{1b}[0m";
+        assert!(
+            extract_device_user_code(raw).is_none(),
+            "the raw ANSI-wrapped line must NOT match before stripping"
+        );
+        assert_eq!(
+            extract_device_user_code(&strip_ansi(raw)).unwrap(),
+            "RH7H-TS5DE"
+        );
+    }
+
+    #[test]
+    fn extract_url_from_ansi_wrapped_codex_line() {
+        // codex wraps the verification URL in the same colour codes. The URL
+        // regex happens to survive raw (ESC terminates the char class), but
+        // we strip first for both — assert the stripped path is clean.
+        let raw = "   \u{1b}[94mhttps://auth.openai.com/codex/device\u{1b}[0m";
+        assert_eq!(
+            extract_login_url(&strip_ansi(raw)).unwrap(),
+            "https://auth.openai.com/codex/device"
+        );
+    }
+
     #[tokio::test]
     async fn submit_login_code_errors_without_pending_session() {
         let provider = parse("anthropic").unwrap();
@@ -361,17 +686,16 @@ mod tests {
 
     #[tokio::test]
     async fn insert_session_rejects_duplicate() {
-        // Spawn a long-running subprocess to grab a real ChildStdin —
-        // `sleep` blocks until killed, so its stdin handle stays alive
-        // long enough for both insert attempts.
+        // Spawn a long-running subprocess to grab a real ChildStdin. The idle
+        // child blocks until killed, so its stdin handle stays alive long
+        // enough for both insert attempts.
         async fn make_stdin() -> ChildStdin {
-            let mut cmd = tokio::process::Command::new("sleep");
-            cmd.arg("60")
-                .stdin(std::process::Stdio::piped())
+            let mut cmd = idle_child_command();
+            cmd.stdin(std::process::Stdio::piped())
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
                 .kill_on_drop(true);
-            let mut child = cmd.spawn().expect("spawn sleep");
+            let mut child = cmd.spawn().expect("spawn idle child");
             child.stdin.take().expect("stdin piped")
         }
         // Use a unique provider id so this test doesn't collide with
@@ -389,6 +713,190 @@ mod tests {
             "unexpected error shape: {err:?}"
         );
         // Cleanup so subsequent tests in this process see an empty map.
+        LOGIN_SESSIONS.lock().await.remove(provider_id);
+    }
+
+    /// Spawn a long-lived child with piped stdio so the relay has a real
+    /// subprocess to kill. The idle child never writes stdout, so the relay
+    /// only ever emits on cancel/exit, with no spurious URL event.
+    async fn spawn_idle_child() -> Child {
+        let mut cmd = idle_child_command();
+        cmd.stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true);
+        cmd.spawn().expect("spawn idle child")
+    }
+
+    #[tokio::test]
+    async fn cancel_login_kills_session_and_emits_benign_completion() {
+        use houston_ui_events::BroadcastEventSink;
+
+        let provider_id = "test-cancel-provider";
+        let cli_name = "test-cli";
+
+        let mut child = spawn_idle_child().await;
+        let stdin = child.stdin.take().expect("stdin piped");
+        let stdout = child.stdout.take().expect("stdout piped");
+        let stderr = child.stderr.take();
+
+        let sink = Arc::new(BroadcastEventSink::new(16));
+        let mut rx = sink.subscribe();
+
+        let registration = insert_session(provider_id, cli_name, stdin)
+            .await
+            .expect("first insert succeeds");
+        spawn_relay(
+            provider_id.to_string(),
+            cli_name.to_string(),
+            child,
+            stdout,
+            stderr,
+            sink.clone(),
+            registration,
+            false,
+        );
+
+        assert!(
+            LOGIN_SESSIONS.lock().await.contains_key(provider_id),
+            "session should be pending right after spawn"
+        );
+
+        cancel_login_inner(provider_id, cli_name)
+            .await
+            .expect("cancel succeeds");
+
+        let ev = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+            .await
+            .expect("relay emits within 5s")
+            .expect("event received");
+        match ev {
+            HoustonEvent::ProviderLoginComplete {
+                provider,
+                success,
+                error,
+            } => {
+                assert_eq!(provider, provider_id);
+                assert!(!success, "a cancelled sign-in did not complete");
+                assert_eq!(error, None, "a user cancel must not surface an error toast");
+            }
+            other => panic!("expected ProviderLoginComplete, got {other:?}"),
+        }
+
+        // Cancel removed the entry eagerly; the relay's token-guarded
+        // cleanup is a no-op. Either way the slot is free so a fresh
+        // Connect can spawn immediately instead of hitting "already
+        // pending" (#237).
+        assert!(
+            !LOGIN_SESSIONS.lock().await.contains_key(provider_id),
+            "session should be cleared after cancel"
+        );
+    }
+
+    #[tokio::test]
+    async fn cancel_login_without_session_is_idempotent() {
+        cancel_login_inner("test-cancel-absent", "test-cli")
+            .await
+            .expect("cancelling a non-existent session is a no-op success");
+    }
+
+    #[tokio::test]
+    async fn device_auth_relay_emits_url_then_code() {
+        use houston_ui_events::BroadcastEventSink;
+
+        // Stand-in for `codex login --device-auth`: emit the verbatim
+        // multi-line output (prose, the verification URL, then the one-time
+        // code on its own line) and exit. The relay should surface the URL the
+        // moment it streams, then re-emit with the code.
+        //
+        // The URL and code lines carry the SGR colour wrappers codex prints
+        // even over a pipe (`\x1b[94m...\x1b[0m`), the exact byte shape captured
+        // from codex 0.133. This is the regression case: the opening `\x1b[94m`
+        // ends in `m`, flush against the code, so the relay MUST strip ANSI
+        // before matching or the second emit (the code) never fires and the
+        // dialog falls back to paste-back. Route the bytes through a file read
+        // by `cat`/`type` (not Unix-only `printf`) so ESC survives everywhere.
+        let dir = tempfile::TempDir::new().unwrap();
+        let canned = format!(
+            "{}\n",
+            [
+                "Follow these steps to sign in with ChatGPT using device code authorization:",
+                "1. Open this link in your browser and sign in to your account",
+                "   \u{1b}[94mhttps://auth.openai.com/codex/device\u{1b}[0m",
+                "2. Enter this one-time code \u{1b}[90m(expires in 15 minutes)\u{1b}[0m",
+                "   \u{1b}[94mABCD-EFGHI\u{1b}[0m",
+            ]
+            .join("\n")
+        );
+        std::fs::write(dir.path().join("device.txt"), canned).unwrap();
+        let mut cmd = emit_file_command(dir.path(), "device.txt");
+        cmd.stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true);
+        let mut child = cmd.spawn().expect("spawn device-auth stand-in");
+        let stdin = child.stdin.take().expect("stdin piped");
+        let stdout = child.stdout.take().expect("stdout piped");
+        let stderr = child.stderr.take();
+
+        let provider_id = "test-device-auth-provider";
+        let cli_name = "test-cli";
+        let sink = Arc::new(BroadcastEventSink::new(16));
+        let mut rx = sink.subscribe();
+
+        let registration = insert_session(provider_id, cli_name, stdin)
+            .await
+            .expect("insert succeeds");
+        spawn_relay(
+            provider_id.to_string(),
+            cli_name.to_string(),
+            child,
+            stdout,
+            stderr,
+            sink.clone(),
+            registration,
+            true, // device_auth
+        );
+
+        // First emit: URL only, the instant the URL line streams in.
+        let ev1 = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+            .await
+            .expect("relay emits a URL within 5s")
+            .expect("event received");
+        match ev1 {
+            HoustonEvent::ProviderLoginUrl {
+                provider,
+                url,
+                user_code,
+            } => {
+                assert_eq!(provider, provider_id);
+                assert_eq!(url, "https://auth.openai.com/codex/device");
+                assert_eq!(user_code, None, "first emit carries no code yet");
+            }
+            other => panic!("expected ProviderLoginUrl, got {other:?}"),
+        }
+
+        // Second emit: same URL, now carrying the one-time device code.
+        let ev2 = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+            .await
+            .expect("relay emits the code within 5s")
+            .expect("event received");
+        match ev2 {
+            HoustonEvent::ProviderLoginUrl {
+                provider,
+                url,
+                user_code,
+            } => {
+                assert_eq!(provider, provider_id);
+                assert_eq!(url, "https://auth.openai.com/codex/device");
+                assert_eq!(user_code.as_deref(), Some("ABCD-EFGHI"));
+            }
+            other => panic!("expected ProviderLoginUrl with code, got {other:?}"),
+        }
+
+        // The relay removes the session on child exit (token-guarded); clear
+        // it explicitly too so a slow exit can't leak into sibling tests that
+        // share the global LOGIN_SESSIONS map.
         LOGIN_SESSIONS.lock().await.remove(provider_id);
     }
 }

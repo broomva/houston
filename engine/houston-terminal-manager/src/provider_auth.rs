@@ -19,7 +19,22 @@ impl ProviderAuthState {
     }
 }
 
-pub async fn probe_claude_auth_status(cli_path: &Path) -> ProviderAuthState {
+pub async fn probe_claude_auth_status(cli_path: &Path, home: &str) -> ProviderAuthState {
+    match probe_claude_status_cli(cli_path).await {
+        ProviderAuthState::Authenticated => ProviderAuthState::Authenticated,
+        ProviderAuthState::Unauthenticated => ProviderAuthState::Unauthenticated,
+        // `claude auth status` couldn't be classified (timed out, errored, or
+        // printed a format we don't recognize). Fall back to the OAuth
+        // credential file the CLI writes on login and removes on
+        // `claude auth logout`, mirroring the codex probe. Without this the
+        // status stays Unknown, which the settings card can't distinguish
+        // from connected — so a sign-out never flipped the Anthropic card
+        // back to "Connect" (unlike codex, which already has this fallback).
+        ProviderAuthState::Unknown => read_claude_auth_file(home),
+    }
+}
+
+async fn probe_claude_status_cli(cli_path: &Path) -> ProviderAuthState {
     let result = tokio::time::timeout(
         Duration::from_secs(5),
         tokio::process::Command::new(cli_path)
@@ -147,6 +162,39 @@ fn read_codex_auth_file(home: &str) -> ProviderAuthState {
         .unwrap_or(ProviderAuthState::Unknown)
 }
 
+/// Resolve Anthropic auth from the OAuth credential file as a fallback when
+/// `claude auth status` can't be classified. The `claude` CLI writes
+/// `~/.claude/.credentials.json` on login and deletes it on `claude auth
+/// logout`, so a present file with a non-empty access token is a reliable
+/// signal. On macOS the CLI can store credentials in the Keychain instead,
+/// but there `claude auth status` answers cleanly, so this file fallback is
+/// only reached on the rare CLI timeout/error path.
+fn read_claude_auth_file(home: &str) -> ProviderAuthState {
+    let auth_path = PathBuf::from(home).join(".claude").join(".credentials.json");
+    match std::fs::read_to_string(&auth_path) {
+        Ok(content) => classify_claude_credentials_json(&content),
+        Err(_) => ProviderAuthState::Unauthenticated,
+    }
+}
+
+fn classify_claude_credentials_json(content: &str) -> ProviderAuthState {
+    serde_json::from_str::<serde_json::Value>(content)
+        .ok()
+        .map(|value| {
+            let has_token = value
+                .get("claudeAiOauth")
+                .and_then(|oauth| oauth.get("accessToken"))
+                .and_then(|token| token.as_str())
+                .is_some_and(|token| !token.is_empty());
+            if has_token {
+                ProviderAuthState::Authenticated
+            } else {
+                ProviderAuthState::Unauthenticated
+            }
+        })
+        .unwrap_or(ProviderAuthState::Unknown)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -186,5 +234,41 @@ mod tests {
         let stderr = "Error loading configuration: unknown variant `xhigh`";
         let state = classify_codex_login_status_output(false, "", stderr);
         assert_eq!(state, ProviderAuthState::Unknown);
+    }
+
+    #[test]
+    fn claude_credentials_with_access_token_is_authenticated() {
+        let state = classify_claude_credentials_json(
+            r#"{"claudeAiOauth":{"accessToken":"sk-ant-oat01-abc","refreshToken":"r","expiresAt":1}}"#,
+        );
+        assert_eq!(state, ProviderAuthState::Authenticated);
+    }
+
+    #[test]
+    fn claude_credentials_without_token_is_unauthenticated() {
+        assert_eq!(
+            classify_claude_credentials_json(r#"{"claudeAiOauth":{"accessToken":""}}"#),
+            ProviderAuthState::Unauthenticated,
+        );
+        assert_eq!(
+            classify_claude_credentials_json("{}"),
+            ProviderAuthState::Unauthenticated,
+        );
+    }
+
+    #[test]
+    fn claude_credentials_garbage_is_unknown() {
+        assert_eq!(
+            classify_claude_credentials_json("not json at all"),
+            ProviderAuthState::Unknown,
+        );
+    }
+
+    #[test]
+    fn claude_auth_file_missing_is_unauthenticated() {
+        // A logged-out user has no ~/.claude/.credentials.json — the fallback
+        // must read that as signed out so the settings card flips to Connect.
+        let state = read_claude_auth_file("/no-such-home-dir-houston-unit-test");
+        assert_eq!(state, ProviderAuthState::Unauthenticated);
     }
 }

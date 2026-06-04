@@ -17,8 +17,10 @@ import type {
   AttachmentManifest,
   AttachmentUploadResult,
   ChatHistoryEntry,
+  ClaudeStatus,
   CommunitySkill,
   ComposioAppEntry,
+  ComposioReconnectResponse,
   ComposioStartLinkResponse,
   ComposioStartLoginResponse,
   ComposioStatus,
@@ -210,6 +212,14 @@ export class HoustonClient {
   }
   deleteWorkspace(id: string): Promise<void> {
     return this.request("DELETE", `/workspaces/${this.seg(id)}`);
+  }
+  /**
+   * Set (or clear) a workspace's UI-locale override. Pass `null` to clear it
+   * so the workspace falls back to the global `locale` preference. Persisted on
+   * the workspace record, so every client of this engine shares the value.
+   */
+  setWorkspaceLocale(id: string, locale: string | null): Promise<Workspace> {
+    return this.request("PATCH", `/workspaces/${this.seg(id)}/locale`, { locale });
   }
   setWorkspaceProvider(id: string, req: UpdateProvider): Promise<Workspace> {
     return this.request("PATCH", `/workspaces/${this.seg(id)}/provider`, req);
@@ -478,8 +488,20 @@ export class HoustonClient {
   providerStatus(name: string): Promise<ProviderStatus> {
     return this.request("GET", `/providers/${this.seg(name)}/status`);
   }
-  providerLogin(name: string): Promise<void> {
-    return this.request("POST", `/providers/${this.seg(name)}/login`);
+  /**
+   * Launch the provider's CLI login. `opts.deviceAuth` requests the
+   * provider's headless device-code flow (OpenAI/codex `--device-auth`)
+   * for remote engines that can't receive the CLI's `localhost` OAuth
+   * callback. It's ignored by providers without a device flow, and the
+   * co-located desktop app omits it to keep the browser-loopback login.
+   */
+  providerLogin(name: string, opts?: { deviceAuth?: boolean }): Promise<void> {
+    return this.request(
+      "POST",
+      `/providers/${this.seg(name)}/login`,
+      undefined,
+      opts?.deviceAuth ? { deviceAuth: "true" } : undefined,
+    );
   }
   providerLogout(name: string): Promise<void> {
     return this.request("POST", `/providers/${this.seg(name)}/logout`);
@@ -498,6 +520,20 @@ export class HoustonClient {
     return this.request("POST", `/providers/${this.seg(name)}/login/code`, {
       code,
     });
+  }
+  /**
+   * Abort an in-flight browser sign-in. The engine kills the provider
+   * CLI subprocess and frees the in-flight slot so a follow-up
+   * `providerLogin` isn't rejected as "already pending". Use this when
+   * the user gives up on the OAuth tab (closed the browser, stuck
+   * spinner): without it they'd be stuck until the 10-min relay
+   * timeout. Idempotent — cancelling with nothing pending is a no-op.
+   * The engine emits a benign `ProviderLoginComplete` (`success:
+   * false`, no `error`) so subscribers clear their pending state
+   * without showing an error toast.
+   */
+  cancelProviderLogin(name: string): Promise<void> {
+    return this.request("POST", `/providers/${this.seg(name)}/login/cancel`);
   }
   /**
    * Persist a Gemini API key to `~/.gemini/.env`. The engine validates
@@ -920,6 +956,28 @@ export class HoustonClient {
     );
   }
 
+  // ---------- claude (runtime installer) ----------
+
+  /**
+   * Snapshot of the runtime Claude Code install — used by the
+   * onboarding "Sign in with Anthropic" card so it can show a clear
+   * "couldn't reach Anthropic" / "Retry" instead of the misleading
+   * "install it yourself" hint that fires for every other
+   * `cli_installed=false` case (issue #231).
+   */
+  claudeStatus(): Promise<ClaudeStatus> {
+    return this.request("GET", "/claude/status");
+  }
+  /**
+   * Kick off a fresh install in the background. The HTTP request
+   * returns immediately; progress + completion stream over the WS
+   * firehose as `ClaudeCliInstalling` / `ClaudeCliReady` /
+   * `ClaudeCliFailed` events.
+   */
+  claudeInstall(): Promise<void> {
+    return this.request("POST", "/claude/install");
+  }
+
   // ---------- composio ----------
 
   composioStatus(): Promise<ComposioStatus> {
@@ -939,6 +997,9 @@ export class HoustonClient {
   composioCompleteLogin(cliKey: string): Promise<void> {
     return this.request("POST", "/composio/login/complete", { cliKey });
   }
+  composioLogout(): Promise<void> {
+    return this.request("POST", "/composio/logout");
+  }
   composioListApps(): Promise<ComposioAppEntry[]> {
     return this.request("GET", "/composio/apps");
   }
@@ -947,6 +1008,18 @@ export class HoustonClient {
   }
   composioConnectApp(toolkit: string): Promise<ComposioStartLinkResponse> {
     return this.request("POST", "/composio/connections", { toolkit });
+  }
+  /** Disconnect a toolkit: removes its connected account(s). */
+  composioDisconnect(toolkit: string): Promise<void> {
+    return this.request("POST", "/composio/connections/disconnect", { toolkit });
+  }
+  /**
+   * Reconnect a toolkit by refreshing its auth. Resolves to a browser URL
+   * the user must open to complete OAuth re-consent, or `null` when the
+   * auth scheme refreshed silently.
+   */
+  composioReconnect(toolkit: string): Promise<ComposioReconnectResponse> {
+    return this.request("POST", "/composio/connections/reconnect", { toolkit });
   }
   /**
    * Ask the engine to actively watch for `toolkit` to land in the

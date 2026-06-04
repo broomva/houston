@@ -93,14 +93,19 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   },
 
   rename: async (workspaceId, id, newName) => {
-    await tauriAgents.rename(workspaceId, id, newName);
+    // The engine renames the folder on disk, so folderPath changes too. Use
+    // the returned record instead of patching only `name`, or the stale path
+    // later reaches tauriWatcher.start and the watch fails with a "neither a
+    // file nor a directory" error toast (#298).
+    const updated = await tauriAgents.rename(workspaceId, id, newName);
     set((s) => ({
-      agents: s.agents.map((a) =>
-        a.id === id ? { ...a, name: newName } : a,
-      ),
-      current:
-        s.current?.id === id ? { ...s.current, name: newName } : s.current,
+      agents: s.agents.map((a) => (a.id === id ? updated : a)),
     }));
+    // If we renamed the agent we're viewing, re-select it so the file watcher
+    // and routine scheduler repoint at the new folder (the old one is gone).
+    if (get().current?.id === id) {
+      get().setCurrent(updated);
+    }
   },
 
   updateColor: async (workspaceId, id, color) => {

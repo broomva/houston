@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
+import type { HoustonEvent } from "@houston-ai/core";
 import { Spinner, ConfirmDialog } from "@houston-ai/core";
 import { tauriProvider, type ProviderStatus } from "../../lib/tauri";
 import {
@@ -9,7 +10,10 @@ import {
 } from "../../lib/providers";
 import { useUIStore } from "../../stores/ui";
 import { analytics } from "../../lib/analytics";
+import { subscribeHoustonEvents } from "../../lib/events";
+import { osIsTauri } from "../../lib/os-bridge";
 import { GeminiConnectDialog } from "./gemini-connect-dialog";
+import { ProviderLoginDialog } from "./provider-login-dialog";
 import { ProviderCard, ComingSoonCard } from "./provider-cards";
 
 interface Props {
@@ -27,6 +31,16 @@ export function ProviderPicker({ onSelect }: Props) {
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [confirmSignOutFor, setConfirmSignOutFor] = useState<ProviderInfo | null>(null);
   const [apiKeyDialogFor, setApiKeyDialogFor] = useState<ProviderInfo | null>(null);
+  // OAuth URL surfaced by the engine when the CLI couldn't open the
+  // user's browser (remote/headless deployments). `userCode` is set for
+  // codex's device-grant flow (the one-time code to enter on OpenAI's
+  // page); null for Claude's paste-back flow. Cleared on
+  // ProviderLoginComplete or when the user closes the dialog.
+  const [loginDialog, setLoginDialog] = useState<{
+    provider: ProviderInfo;
+    url: string;
+    userCode: string | null;
+  } | null>(null);
   const addToast = useUIStore((s) => s.addToast);
 
   const prevStatuses = useRef<Record<string, ProviderStatus>>({});
@@ -80,6 +94,58 @@ export function ProviderPicker({ onSelect }: Props) {
     }
   }, [pendingId, statuses]);
 
+  // Sign-in lifecycle events. `ProviderLoginUrl` surfaces the OAuth URL
+  // for remote/headless engines (the CLI can't open the local browser),
+  // shown via <ProviderLoginDialog>. `ProviderLoginComplete` is the
+  // authoritative end of an attempt: the status poll only ever flips a
+  // card to Connected on SUCCESS, so without reacting to a failed or
+  // cancelled completion the card would spin forever (the #237 bug this
+  // picker had before — settings already handled it). Functional
+  // setState avoids stale-closure reads when several providers fire
+  // events concurrently.
+  useEffect(() => {
+    const off = subscribeHoustonEvents((ev: HoustonEvent) => {
+      if (ev.type === "ProviderLoginUrl") {
+        const prov = PROVIDERS.find((p) => p.id === ev.data.provider);
+        if (prov) {
+          // The relay can emit twice for codex's device flow: URL-only,
+          // then again carrying the one-time code. Keep a code we've
+          // already shown if a later URL-only frame arrives for the same
+          // provider.
+          setLoginDialog((current) => ({
+            provider: prov,
+            url: ev.data.url,
+            userCode:
+              ev.data.user_code ??
+              (current?.provider.id === prov.id ? current.userCode : null),
+          }));
+        }
+      } else if (ev.type === "ProviderLoginComplete") {
+        const prov = PROVIDERS.find((p) => p.id === ev.data.provider);
+        if (ev.data.success) {
+          addToast({
+            title: t("toast.signInSucceeded", { provider: prov?.name ?? ev.data.provider }),
+            variant: "success",
+          });
+        } else if (ev.data.error) {
+          // A user cancel completes with `success: false` and no
+          // `error` — benign, so we stay quiet and just clear state.
+          addToast({
+            title: t("toast.signInFailed", { provider: prov?.name ?? ev.data.provider }),
+            description: ev.data.error,
+            variant: "error",
+          });
+        }
+        setLoginDialog((current) =>
+          current?.provider.id === ev.data.provider ? null : current,
+        );
+        setPendingId((current) => (current === ev.data.provider ? null : current));
+        loadStatuses();
+      }
+    });
+    return off;
+  }, [addToast, loadStatuses, t]);
+
   const handleConnect = async (provider: ProviderInfo) => {
     // API-key providers (e.g. Gemini) have no CLI login flow. The engine
     // would return a BadRequest if we called `launchLogin`; instead we open
@@ -90,7 +156,11 @@ export function ProviderPicker({ onSelect }: Props) {
     }
     setPendingId(provider.id);
     try {
-      await tauriProvider.launchLogin(provider.id);
+      // Remote clients (this app running as a webapp/PWA against a hosted
+      // engine) can't receive the CLI's localhost OAuth callback, so ask
+      // for the headless device-code flow. The engine ignores the flag for
+      // providers without a device variant (Claude keeps its paste-back).
+      await tauriProvider.launchLogin(provider.id, { deviceAuth: !osIsTauri() });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[provider-picker] launchLogin(${provider.id}) failed:`, msg);
@@ -100,6 +170,27 @@ export function ProviderPicker({ onSelect }: Props) {
         variant: "error",
       });
       setPendingId(null);
+    }
+  };
+
+  const handleCancel = async (provider: ProviderInfo) => {
+    // Tear down the engine-side login subprocess so the next Connect
+    // isn't rejected as "already pending". Clear the local spinner
+    // optimistically — the engine's benign ProviderLoginComplete is the
+    // backstop, but the user clicked Cancel and should see it react now.
+    try {
+      await tauriProvider.cancelLogin(provider.id);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[provider-picker] cancelLogin(${provider.id}) failed:`, msg);
+      addToast({
+        title: t("toast.cancelFailed", { provider: provider.name }),
+        description: msg,
+        variant: "error",
+      });
+    } finally {
+      setPendingId((current) => (current === provider.id ? null : current));
+      setLoginDialog((current) => (current?.provider.id === provider.id ? null : current));
     }
   };
 
@@ -144,6 +235,7 @@ export function ProviderPicker({ onSelect }: Props) {
               onClick={() =>
                 connected ? setConfirmSignOutFor(prov) : handleConnect(prov)
               }
+              onCancel={() => handleCancel(prov)}
             />
           );
         })}
@@ -189,6 +281,13 @@ export function ProviderPicker({ onSelect }: Props) {
           // files, same as the API-key save path above.
           setPendingId(providerId);
         }}
+      />
+
+      <ProviderLoginDialog
+        provider={loginDialog?.provider ?? null}
+        url={loginDialog?.url ?? null}
+        userCode={loginDialog?.userCode ?? null}
+        onClose={() => setLoginDialog(null)}
       />
     </>
   );

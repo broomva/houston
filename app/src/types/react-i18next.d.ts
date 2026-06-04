@@ -29,6 +29,7 @@ import type portable from "../locales/en/portable.json";
 import type tile from "../locales/en/tile.json";
 import type timeline from "../locales/en/timeline.json";
 import type tracker from "../locales/en/tracker.json";
+import type context from "../locales/en/context.json";
 
 declare module "react-i18next" {
   interface CustomTypeOptions {
@@ -56,6 +57,7 @@ declare module "react-i18next" {
       tile: typeof tile;
       timeline: typeof timeline;
       tracker: typeof tracker;
+      context: typeof context;
     };
   }
 }

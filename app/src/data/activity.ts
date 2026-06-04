@@ -7,6 +7,18 @@
 
 import schema from "@houston-ai/agent-schemas/activity.schema.json";
 import { newId, now, readAgentJson, writeAgentJson } from "./agent-file";
+import { applyBulkPatch, applyBulkRemove } from "./activity-bulk";
+
+/** Every status a mission can have. Mirrors the `status` enum in
+ *  `activity.schema.json` (the on-disk source of truth). */
+export const ACTIVITY_STATUSES = [
+  "running",
+  "needs_you",
+  "done",
+  "error",
+  "archived",
+] as const;
+export type ActivityStatus = (typeof ACTIVITY_STATUSES)[number];
 
 export interface Activity {
   id: string;
@@ -94,5 +106,30 @@ export async function remove(agentPath: string, id: string): Promise<void> {
   const items = await list(agentPath);
   const next = items.filter((a) => a.id !== id);
   if (next.length === items.length) throw new Error(`Activity not found: ${id}`);
+  await writeAgentJson(agentPath, NAME, s, next);
+}
+
+/**
+ * Patch many activities in one read-mutate-write pass (e.g. bulk archive,
+ * move-to). One file write → one engine event → one query invalidation,
+ * instead of N round-trips. Unknown ids are silently no-ops.
+ */
+export async function bulkUpdate(
+  agentPath: string,
+  ids: string[],
+  patch: ActivityUpdate,
+): Promise<void> {
+  const items = await list(agentPath);
+  const next = applyBulkPatch(items, new Set(ids), patch, now());
+  await writeAgentJson(agentPath, NAME, s, next);
+}
+
+/** Delete many activities in one read-mutate-write pass. */
+export async function bulkRemove(
+  agentPath: string,
+  ids: string[],
+): Promise<void> {
+  const items = await list(agentPath);
+  const next = applyBulkRemove(items, new Set(ids));
   await writeAgentJson(agentPath, NAME, s, next);
 }

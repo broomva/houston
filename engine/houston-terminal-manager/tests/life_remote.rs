@@ -26,12 +26,13 @@ async fn life_provider_routes_through_lifed_end_to_end() {
     let (mut rx, _handle) = SessionManager::spawn_session(
         life,
         "hello from houston".to_string(),
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
+        None, // resume_session_id
+        None, // resume_fallback_prompt
+        None, // working_dir
+        None, // model
+        None, // effort
+        None, // system_prompt
+        None, // mcp_config
         false,
         false,
     );

@@ -5,11 +5,16 @@
     "approve": "Mover para Pronto",
     "approveTooltip": "Mover para Pronto",
     "renameTooltip": "Mudar título",
-    "deleteTooltip": "Excluir"
+    "deleteTooltip": "Excluir",
+    "select": "Selecionar missão",
+    "openTerminalFailed": "Não foi possível abrir o terminal: {{error}}"
   },
   "deleteCard": {
     "titleWithName": "Excluir \"{{name}}\"?",
     "description": "Este item e seu histórico serão removidos de forma permanente."
+  },
+  "tags": {
+    "routine": "Rotina"
   },
   "empty": {
     "title": "Ainda sem conversas",
@@ -49,5 +54,49 @@
   },
   "selectedSkill": {
     "cancel": "Fechar"
+  },
+  "bulk": {
+    "selected_one": "{{count}} selecionada",
+    "selected_other": "{{count}} selecionadas",
+    "moveTo": "Mover para",
+    "selectAll": "Selecionar tudo",
+    "archive": "Arquivar",
+    "delete": "Excluir",
+    "clear": "Limpar seleção",
+    "cancel": "Cancelar",
+    "error": "Não foi possível atualizar as missões selecionadas: {{error}}",
+    "confirmMove": {
+      "title": "Mover missões?",
+      "description_one": "Mover {{count}} missão para {{target}}?",
+      "description_other": "Mover {{count}} missões para {{target}}?",
+      "action": "Mover"
+    },
+    "confirmArchive": {
+      "title": "Arquivar missões?",
+      "description_one": "Arquivar {{count}} missão? Você pode reabrir pela aba Arquivadas.",
+      "description_other": "Arquivar {{count}} missões? Você pode reabrir pela aba Arquivadas.",
+      "action": "Arquivar"
+    },
+    "confirmDelete": {
+      "title": "Excluir missões?",
+      "description_one": "Excluir de forma permanente {{count}} missão e seu histórico?",
+      "description_other": "Excluir de forma permanente {{count}} missões e seu histórico?",
+      "action": "Excluir"
+    }
+  },
+  "doneArchive": {
+    "tooltip": "Arquivar tudo de Pronto",
+    "confirmTitle": "Arquivar as missões Prontas?",
+    "confirmDescription_one": "Arquivar {{count}} missão em Pronto? Você pode reabrir pela aba Arquivadas.",
+    "confirmDescription_other": "Arquivar {{count}} missões em Pronto? Você pode reabrir pela aba Arquivadas.",
+    "confirmAction": "Arquivar tudo"
+  },
+  "archived": {
+    "emptyTitle": "Nenhuma missão arquivada",
+    "emptyDescription": "As missões arquivadas aparecem aqui. Responda a uma para reativá-la.",
+    "searchPlaceholder": "Buscar missões arquivadas"
+  },
+  "dnd": {
+    "moveError": "Não foi possível mover a missão: {{error}}"
   }
 }

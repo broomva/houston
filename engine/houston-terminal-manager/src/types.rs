@@ -1,21 +1,6 @@
 use crate::provider_error_kind::ProviderError;
 use serde::{Deserialize, Serialize};
 
-/// Token usage info emitted on the Anthropic `result` envelope.
-///
-/// All fields are optional because (a) older claude-code versions may
-/// omit some and (b) Anthropic only populates cache fields when prompt
-/// caching is active for the request. Consumers should treat absent =
-/// unknown, not zero. The `advanced.context_meter` wheel uses
-/// `input_tokens` as the canonical "context fill" reading.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
-pub struct UsageInfo {
-    pub input_tokens: Option<u64>,
-    pub output_tokens: Option<u64>,
-    pub cache_creation_input_tokens: Option<u64>,
-    pub cache_read_input_tokens: Option<u64>,
-}
-
 /// Events parsed from Claude's `--output-format stream-json` NDJSON output.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -49,10 +34,10 @@ pub enum ClaudeEvent {
         cost_usd: Option<f64>,
         duration_ms: Option<u64>,
         session_id: Option<String>,
-        /// Token usage emitted by claude-code's `result` event.
-        /// Used by `advanced.context_meter` to populate the in-composer
-        /// wheel. Optional because not every CLI version emits it.
-        usage: Option<UsageInfo>,
+        /// Cumulative-turn token usage on the terminal event. Used as a
+        /// fallback when no assistant message carried per-request usage,
+        /// and to populate the `advanced.context_meter` in-composer wheel.
+        usage: Option<ClaudeUsageRaw>,
         #[serde(flatten)]
         extra: serde_json::Value,
     },
@@ -100,8 +85,47 @@ pub struct StreamDelta {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AssistantMessage {
     pub content: Option<Vec<ContentBlock>>,
+    /// Per-request token usage Anthropic attaches to each assistant message.
+    /// The final assistant message of a turn reports the full prompt size of
+    /// the last API request — i.e. how much of the context window was used.
+    pub usage: Option<ClaudeUsageRaw>,
     #[serde(flatten)]
     pub extra: serde_json::Value,
+}
+
+/// Raw Anthropic `usage` block, as it appears on `assistant` messages and
+/// the terminal `result` event. Fields default to 0 when absent so an older
+/// CLI that omits a key (e.g. no cache fields) still deserializes. Normalized
+/// into the provider-agnostic [`TokenUsage`] before it reaches the feed.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+pub struct ClaudeUsageRaw {
+    #[serde(default)]
+    pub input_tokens: u64,
+    #[serde(default)]
+    pub cache_creation_input_tokens: u64,
+    #[serde(default)]
+    pub cache_read_input_tokens: u64,
+    #[serde(default)]
+    pub output_tokens: u64,
+}
+
+impl ClaudeUsageRaw {
+    /// Collapse Anthropic's four-way split into the shared [`TokenUsage`].
+    ///
+    /// Anthropic reports `input_tokens` as the NON-cached fresh input only;
+    /// `cache_read_input_tokens` and `cache_creation_input_tokens` are the
+    /// cached-reuse and cache-write portions. All three occupy the context
+    /// window, so the prompt size = their sum. (Contrast Codex, whose
+    /// `input_tokens` is already the cache-inclusive total.)
+    pub fn normalize(&self) -> TokenUsage {
+        TokenUsage {
+            context_tokens: self.input_tokens
+                + self.cache_creation_input_tokens
+                + self.cache_read_input_tokens,
+            output_tokens: self.output_tokens,
+            cached_tokens: self.cache_read_input_tokens,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -134,6 +158,21 @@ pub enum ContentBlock {
     Unknown,
 }
 
+/// Provider-agnostic token usage for a completed turn, normalized from each
+/// provider's native `usage` shape (Anthropic's four-way cache split, Codex's
+/// cache-inclusive totals, ...). Drives the chat context-usage indicator.
+///
+/// `context_tokens` is the headline number: the size of the prompt on the
+/// most recent model request, i.e. how much of the context window is in use.
+/// `cached_tokens` (a subset of `context_tokens`) and `output_tokens` are
+/// informational detail for the dialog.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct TokenUsage {
+    pub context_tokens: u64,
+    pub output_tokens: u64,
+    pub cached_tokens: u64,
+}
+
 /// Visible files created or modified during a session.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct FileChanges {
@@ -158,6 +197,21 @@ pub enum ToolRuntimeErrorKind {
     /// account" for `gpt-5.5-codex` on plans that don't include it). The
     /// UI renders a dedicated card with a "Switch to GPT-5.5" action.
     ProviderModelUnsupported,
+}
+
+/// Why a context-compaction boundary was recorded.
+///
+/// `Native` — the provider CLI compacted its own transcript on its own
+/// schedule (Claude Code's `compact_boundary` system event as it nears the
+/// context window). `Proactive` — Houston forced a summarize-and-reseed at the
+/// user's configured threshold, before the CLI would have. In both cases the
+/// user's visible `chat_feed` is untouched; only the agent's working context
+/// shrinks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CompactTrigger {
+    Native,
+    Proactive,
 }
 
 /// Processed feed items for rendering in the UI.
@@ -215,11 +269,30 @@ pub enum FeedItem {
     },
     /// System message (session start, etc.).
     SystemMessage(String),
+    /// A context-compaction boundary. The conversation's earlier turns were
+    /// summarized to free context — either by the provider CLI itself
+    /// (`Native`) or by Houston's proactive reseed (`Proactive`). Rendered as
+    /// a subtle divider; the full chat history above and below stays visible.
+    /// `pre_tokens` is how full the context was just before compaction, when
+    /// the provider reports it.
+    ContextCompacted {
+        trigger: CompactTrigger,
+        // Plain `Option` (serializes as `null` when absent), matching the
+        // `FinalResult { usage }` convention so the live event and the
+        // persisted `chat_feed` row share one shape. `default` keeps an older
+        // row that predates the field deserializable.
+        #[serde(default)]
+        pre_tokens: Option<u64>,
+    },
     /// Session completed — cost/duration/usage summary.
-    /// Token fields populate the `advanced.context_meter` wheel; all are
-    /// optional because not every provider emits them (gemini parses
-    /// stats per turn but doesn't always echo back in result; codex
-    /// emits via `turn.completed`).
+    ///
+    /// The flat token fields populate the fork's `advanced.context_meter`
+    /// wheel (`use-context-stats` reads `input_tokens` / `cache_read_…`
+    /// directly); all are optional because not every provider emits them
+    /// (gemini parses stats per turn but doesn't always echo back in result;
+    /// codex emits via `turn.completed`). `usage` is the provider-agnostic
+    /// normalized rollup that feeds the upstream context-usage indicator;
+    /// `None` for providers that don't surface usage yet.
     FinalResult {
         result: String,
         cost_usd: Option<f64>,
@@ -228,6 +301,7 @@ pub enum FeedItem {
         output_tokens: Option<u64>,
         cache_creation_input_tokens: Option<u64>,
         cache_read_input_tokens: Option<u64>,
+        usage: Option<TokenUsage>,
     },
     /// Visible files created or changed during the session.
     FileChanges(FileChanges),

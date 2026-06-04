@@ -39,8 +39,6 @@ import { useFeedStore } from "../stores/feeds";
 import { useUIStore } from "../stores/ui";
 import {
   useActivity,
-  useConnectedToolkits,
-  useConnections,
   useSkillCatalog,
   useSkills,
 } from "../hooks/queries";
@@ -51,20 +49,17 @@ import {
   tauriChat,
   tauriConfig,
   tauriProvider,
-  tauriShell,
-  tauriWorktree,
   withAttachmentPaths,
 } from "../lib/tauri";
 import { createMission } from "../lib/create-mission";
+import { createMissionWorktreeIfEnabled } from "../lib/mission-worktree";
 import { queryKeys } from "../lib/query-keys";
 import { humanizeSkillName } from "../lib/humanize-skill-name";
 import { useFileToolRenderer } from "../hooks/use-file-tool-renderer";
 import { useAskUserQuestionRenderer } from "../hooks/use-ask-user-question-renderer";
 import { useComposedSpecialToolRenderers } from "../hooks/use-composed-special-tool-renderers";
-import {
-  ComposioLinkCard,
-  parseComposioToolkitFromHref,
-} from "./composio-link-card";
+import { ComposioLinkCard } from "./composio-link-card";
+import { parseComposioToolkitFromHref } from "./composio-card-state";
 import {
   ComposioSigninCard,
   isComposioSigninHref,
@@ -72,7 +67,22 @@ import {
 import { ChatModelSelector } from "./chat-model-selector";
 import { ContextMeter } from "./context-meter";
 import { FeatureGate } from "./FeatureGate";
-import { getDefaultModel, validModelOrNull } from "../lib/providers";
+import { ChatEffortSelector } from "./chat-effort-selector";
+import { ContextCompactedDivider } from "./context-compacted-divider";
+import {
+  getContextWindowConfig,
+  getDefaultModel,
+  getModel,
+  validModelOrNull,
+  validEffortOrDefault,
+  normalizeLegacyModel,
+  type EffortLevel,
+} from "../lib/providers";
+import {
+  sessionContextUsage,
+  effectiveContextWindow,
+} from "../lib/context-usage";
+import { ContextIndicator } from "./context-indicator";
 import { analytics } from "../lib/analytics";
 import {
   buildSkillClaudePrompt,
@@ -80,6 +90,10 @@ import {
   encodeSkillMessage,
 } from "../lib/skill-message";
 import { attachmentReferences } from "../lib/attachment-message";
+import {
+  encodeAutoContinueMessage,
+  filterAutoContinueFeedItems,
+} from "../lib/auto-continue-message";
 import { SkillCard } from "./skill-card";
 import { NewMissionPickerDialog } from "./new-mission-picker-dialog";
 import { UserSkillMessage } from "./user-skill-message";
@@ -201,27 +215,35 @@ export function useAgentChatPanel({
   const { processLabels, getThinkingMessage } = useChatDisplayLabels();
   const queryClient = useQueryClient();
   const addToast = useUIStore((s) => s.addToast);
+  const pushFeedItem = useFeedStore((s) => s.pushFeedItem);
 
   const path = agent?.folderPath ?? null;
   const agentModes = agentDef?.config.agents;
 
   // ── Activity / agent tier model resolution ─────────────────────────────
   // Activity is the per-mission override; agent config is the per-agent
-  // default. Workspace-level defaults were retired; existing values were
-  // migrated into agent configs at engine boot.
+  // default. Workspace-level defaults were retired and pushed into agent
+  // configs. Legacy Claude model aliases ("opus"/"sonnet") are normalized to
+  // their explicit version IDs on read (mirrors the engine migration) so a
+  // stored alias never falls through to the default model and silently
+  // downgrades an Opus agent to Sonnet — activity records in particular are
+  // never migrated on disk, so this read-side guard is what covers them.
   const [agentProvider, setAgentProvider] = useState<string | null>(null);
   const [agentModel, setAgentModel] = useState<string | null>(null);
+  const [agentEffort, setAgentEffort] = useState<string | null>(null);
   useEffect(() => {
     if (!path) {
       setAgentProvider(null);
       setAgentModel(null);
+      setAgentEffort(null);
       return;
     }
     tauriConfig
       .read(path)
       .then((cfg) => {
         setAgentProvider((cfg.provider as string) ?? null);
-        setAgentModel((cfg.model as string) ?? null);
+        setAgentModel(normalizeLegacyModel((cfg.model as string) ?? null));
+        setAgentEffort((cfg.effort as string) ?? null);
       })
       .catch(() => {});
   }, [path]);
@@ -234,7 +256,7 @@ export function useAgentChatPanel({
     ) ?? null;
   }, [activities, selectedSessionKey]);
   const activityProvider = selectedActivity?.provider ?? null;
-  const activityModel = selectedActivity?.model ?? null;
+  const activityModel = normalizeLegacyModel(selectedActivity?.model ?? null);
   const selectedActivityId = selectedActivity?.id ?? null;
 
   const effectiveProvider = activityProvider ?? agentProvider ?? "anthropic";
@@ -242,6 +264,41 @@ export function useAgentChatPanel({
     validModelOrNull(effectiveProvider, activityModel) ??
     validModelOrNull(effectiveProvider, agentModel) ??
     getDefaultModel(effectiveProvider);
+  // Effort is a per-agent setting validated against whatever model is active
+  // (activity override or agent default), so it never offers an unsupported
+  // level for the model that will actually run.
+  const effectiveEffort = validEffortOrDefault(
+    effectiveProvider,
+    effectiveModel,
+    agentEffort,
+  );
+
+  // ── Context-usage indicator ───────────────────────────────────────────
+  // Latest turn's normalized usage from this session's feed, divided by a
+  // self-correcting window estimate: the active model's catalogued default,
+  // snapped up once the session's observed peak proves a larger (plan/credit-
+  // gated) window. Drives the composer footer pill + dialog.
+  const sessionFeedItems = useFeedStore((s) =>
+    path && selectedSessionKey
+      ? s.items[path]?.[selectedSessionKey]
+      : undefined,
+  );
+  const { contextUsage, contextWindow } = useMemo(() => {
+    const { latest, peakContextTokens } = sessionContextUsage(sessionFeedItems);
+    // `peakContextTokens` is session-wide while `cfg` is the currently-selected
+    // model's. Safe today because all same-provider models share a snap ceiling
+    // (every Anthropic model maxes at 1M; provider is locked after turn one so
+    // openai/anthropic never mix in one session). Revisit if a provider ever
+    // adds a model whose ceiling is below a sibling's realistic peak.
+    const cfg = getContextWindowConfig(effectiveProvider, effectiveModel);
+    return {
+      contextUsage: latest,
+      contextWindow:
+        effectiveContextWindow(cfg, peakContextTokens) ?? undefined,
+    };
+  }, [sessionFeedItems, effectiveProvider, effectiveModel]);
+  const modelLabel = getModel(effectiveProvider, effectiveModel)?.label;
+
   const handleModelSelect = useCallback(
     async (prov: string, mod: string) => {
       // Optimistic UI: the picker flips instantly while the writes fan out.
@@ -273,14 +330,70 @@ export function useAgentChatPanel({
     },
     [path, selectedActivityId, addToast, t],
   );
+  const handleEffortSelect = useCallback(
+    async (effort: EffortLevel) => {
+      // Effort is per-agent (not per-activity): persist to the agent config
+      // the engine reads at send time. Optimistic flip for the picker.
+      setAgentEffort(effort);
+      try {
+        if (path) {
+          const cfg = await tauriConfig.read(path);
+          await tauriConfig.write(path, { ...cfg, effort });
+        }
+      } catch (err) {
+        addToast({
+          title: t("chat:errors.modelPersistFailed"),
+          description: String(err),
+          variant: "error",
+        });
+      }
+    },
+    [path, addToast, t],
+  );
 
   // ── Composio link card support ────────────────────────────────────────
-  const { data: composioStatus } = useConnections();
-  const isSignedIn = composioStatus?.status === "ok";
-  const { data: connectedList } = useConnectedToolkits(isSignedIn);
-  const connectedSet = useMemo(
-    () => new Set(connectedList ?? []),
-    [connectedList],
+  // The card owns its own connection status (it subscribes to the
+  // connectedToolkits query directly so it stays reactive inside Streamdown's
+  // memoized markdown blocks). The panel only supplies the agent nudge.
+  //
+  // When a connection the user started from a chat card actually lands,
+  // proactively nudge the agent so it resumes the task without the user
+  // having to retype. Mirrors the retry send-path: send first, then push the
+  // optimistic feed item; surface a toast if the send fails (no silent drop).
+  const handleIntegrationConnected = useCallback(
+    (_toolkit: string, appName: string) => {
+      if (!path || !selectedSessionKey) return;
+      // The agent needs a user turn to resume, but the user didn't type one.
+      // Tag it with the auto-continue marker so the agent still receives the
+      // instruction while the transcript hides the bubble (see
+      // `mapFeedItems`). No optimistic push: we never want it shown, and the
+      // engine-persisted copy is filtered the same way on reload.
+      const message = encodeAutoContinueMessage(
+        t("chat:composio.connectedFollowup", { name: appName }),
+      );
+      tauriChat
+        .send(path, message, selectedSessionKey, {
+          providerOverride: effectiveProvider,
+          modelOverride: effectiveModel,
+          effortOverride: effectiveEffort,
+        })
+        .catch((err) => {
+          addToast({
+            title: t("chat:composio.followupFailed", { name: appName }),
+            description: String(err),
+            variant: "error",
+          });
+        });
+    },
+    [
+      path,
+      selectedSessionKey,
+      effectiveProvider,
+      effectiveModel,
+      effectiveEffort,
+      addToast,
+      t,
+    ],
   );
   const renderLink = useCallback(
     ({ href, onOpen }: { href: string; onOpen: () => void }) => {
@@ -292,12 +405,12 @@ export function useAgentChatPanel({
       return (
         <ComposioLinkCard
           toolkit={toolkit}
-          isConnected={connectedSet.has(toolkit)}
           onOpen={onOpen}
+          onConnected={handleIntegrationConnected}
         />
       );
     },
-    [connectedSet],
+    [handleIntegrationConnected],
   );
 
   // ── File-tool rendering (per-agent path) ──────────────────────────────
@@ -352,7 +465,6 @@ export function useAgentChatPanel({
     onSelectSessionRef.current = onSelectSession;
   }, [onSelectSession]);
 
-  const pushFeedItem = useFeedStore((s) => s.pushFeedItem);
   const attachmentLabels = useMemo<UserAttachmentMessageLabels>(
     () => ({
       attachmentCount: (count) => t("attachmentMessage.count", { count }),
@@ -397,6 +509,7 @@ export function useAgentChatPanel({
           // producing the "dropdown says Gemini, response from Claude" bug.
           providerOverride: effectiveProvider,
           modelOverride: effectiveModel,
+          effortOverride: effectiveEffort,
         });
         pushFeedItem(path, sessionKey, {
           feed_type: "user_message",
@@ -409,23 +522,7 @@ export function useAgentChatPanel({
         const mode = agentModes?.find((m) => m.id === agentMode);
         let encodedUserMessage = encoded;
 
-        // Honour worktree mode if the agent's config opts in. Same
-        // bootstrap as BoardTab's text-send path.
-        let worktreePath: string | undefined;
-        try {
-          const cfg = await tauriConfig.read(path);
-          if (cfg.worktreeMode) {
-            const slug = crypto.randomUUID().slice(0, 8);
-            const wt = await tauriWorktree.create(path, slug);
-            worktreePath = wt.path;
-            const installCmd = cfg.installCommand as string | undefined;
-            if (installCmd && worktreePath) {
-              tauriShell.run(worktreePath, installCmd).catch(console.error);
-            }
-          }
-        } catch {
-          /* config may not exist yet */
-        }
+        const worktreePath = await createMissionWorktreeIfEnabled(path);
 
         const { conversationId, sessionKey } = await createMission(
           {
@@ -442,6 +539,7 @@ export function useAgentChatPanel({
             // See note above re: effectiveProvider over chatProvider.
             providerOverride: effectiveProvider,
             modelOverride: effectiveModel,
+            effortOverride: effectiveEffort,
             buildPrompt: async (activityId) => {
               const paths = await tauriAttachments.save(`activity-${activityId}`, files);
               const prompt = withAttachmentPaths(claudePrompt, paths);
@@ -466,6 +564,7 @@ export function useAgentChatPanel({
         });
         onSelectSessionRef.current?.(conversationId);
       }
+      analytics.track("skill_used", { skill_slug: skill.name });
       setActiveSkill(null);
       setActiveExternalSkill(null);
       return true;
@@ -478,6 +577,7 @@ export function useAgentChatPanel({
       agentModes,
       effectiveProvider,
       effectiveModel,
+      effectiveEffort,
       pushFeedItem,
       queryClient,
       t,
@@ -547,6 +647,7 @@ export function useAgentChatPanel({
   );
   const renderSystemMessage = useCallback(
     (msg: ChatMessage) => {
+      if (msg.compaction) return <ContextCompactedDivider />;
       if (isToolRuntimeErrorMessage(msg)) {
         const isModelUnsupported =
           msg.runtimeError.kind === "provider_model_unsupported";
@@ -561,6 +662,7 @@ export function useAgentChatPanel({
                 // the in-memory chatProvider — see send sites above.
                 providerOverride: effectiveProvider,
                 modelOverride: effectiveModel,
+                effortOverride: effectiveEffort,
               });
               pushFeedItem(path, selectedSessionKey, {
                 feed_type: "user_message",
@@ -578,11 +680,11 @@ export function useAgentChatPanel({
       if (isProviderAuthMessage(msg.content)) return null;
       return undefined;
     },
-    [effectiveModel, effectiveProvider, handleModelSelect, path, pushFeedItem, selectedSessionKey, t],
+    [effectiveModel, effectiveProvider, effectiveEffort, handleModelSelect, path, pushFeedItem, selectedSessionKey, t],
   );
   const mapFeedItems = useCallback(
     ({ items }: { sessionKey: string; items: FeedItem[] }) =>
-      filterProviderAuthFeedItems(items),
+      filterAutoContinueFeedItems(filterProviderAuthFeedItems(items)),
     [],
   );
   const afterMessages = useCallback(
@@ -670,6 +772,14 @@ export function useAgentChatPanel({
           onSelect={handleModelSelect}
           lockedProvider={hasMessages ? effectiveProvider : null}
         />
+        <ChatEffortSelector
+          provider={effectiveProvider}
+          model={effectiveModel}
+          effort={effectiveEffort}
+          onSelect={handleEffortSelect}
+        />
+        {/* Fork flag-gated detailed context meter; upstream's always-on
+            ContextIndicator sits to the right. Both are kept under the hybrid. */}
         <FeatureGate flag="advanced.context_meter">
           <ContextMeter
             feedItems={feedItems}
@@ -677,9 +787,16 @@ export function useAgentChatPanel({
             model={effectiveModel}
           />
         </FeatureGate>
+        <div className="ml-auto">
+          <ContextIndicator
+            usage={contextUsage}
+            contextWindow={contextWindow}
+            modelLabel={modelLabel}
+          />
+        </div>
       </div>
     );
-  }, [agent, t, effectiveProvider, effectiveModel, handleModelSelect]);
+  }, [agent, t, effectiveProvider, effectiveModel, effectiveEffort, handleModelSelect, handleEffortSelect, contextUsage, contextWindow, modelLabel]);
 
   const attachMenu = useMemo<AIBoardProps["attachMenu"]>(() => {
     if (!agent) return undefined;
@@ -714,9 +831,17 @@ export function useAgentChatPanel({
             lockedProvider={hasMessages ? effectiveProvider : null}
           />
         </div>
+        <div className="px-2 py-1">
+          <ChatEffortSelector
+            provider={effectiveProvider}
+            model={effectiveModel}
+            effort={effectiveEffort}
+            onSelect={handleEffortSelect}
+          />
+        </div>
       </div>
     );
-  }, [agent, t, effectiveProvider, effectiveModel, handleModelSelect]);
+  }, [agent, t, effectiveProvider, effectiveModel, effectiveEffort, handleModelSelect, handleEffortSelect]);
 
   const pickerDialog = agent ? (
     <NewMissionPickerDialog

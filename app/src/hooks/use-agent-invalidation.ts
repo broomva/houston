@@ -3,6 +3,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import type { HoustonEvent } from "@houston-ai/core";
 import { queryKeys } from "../lib/query-keys";
 import { subscribeHoustonEvents } from "../lib/events";
+import { onEngineRestarted } from "../lib/engine";
+import { useSessionStatusStore } from "../stores/session-status";
 
 /**
  * Maps agent-change events from Rust (both Tauri command emissions
@@ -14,6 +16,11 @@ export function useAgentInvalidation() {
   const qc = useQueryClient();
 
   useEffect(() => {
+    const offEngineRestarted = onEngineRestarted(() => {
+      useSessionStatusStore.getState().clearAll();
+      qc.invalidateQueries({ queryKey: ["activity"] });
+      qc.invalidateQueries({ queryKey: ["all-conversations"] });
+    });
     const unlisten = subscribeHoustonEvents((p: HoustonEvent) => {
       console.log("[invalidation] event:", p.type, "data" in p ? (p as { data: { agent_path?: string } }).data?.agent_path : "");
 
@@ -73,10 +80,17 @@ export function useAgentInvalidation() {
         case "ComposioConnectionAdded":
           qc.invalidateQueries({ queryKey: queryKeys.connectedToolkits() });
           break;
+        // A provider OAuth sign-in (or sign-out) finished — refresh the
+        // cached provider statuses so the chat model picker reflects the new
+        // connection without waiting for the next mount (issue #342).
+        case "ProviderLoginComplete":
+          qc.invalidateQueries({ queryKey: queryKeys.providerStatuses() });
+          break;
       }
     });
 
     return () => {
+      offEngineRestarted();
       unlisten();
     };
   }, [qc]);

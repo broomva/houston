@@ -18,6 +18,13 @@ import { DisclaimerGate } from "./components/shell/disclaimer-gate";
 import { LanguageGate } from "./components/shell/language-gate";
 import { showErrorToast } from "./lib/error-toast";
 import { analytics, classifyAnalyticsError } from "./lib/analytics";
+import { initSentry } from "./lib/sentry";
+import { installSentrySmokeShortcuts } from "./lib/sentry-smoke";
+
+// Sentry first so global error handlers below can capture into it from the
+// very first render. Empty DSN → silent no-op (dev / forks).
+initSentry();
+installSentrySmokeShortcuts();
 
 // Initialize file-based logging — patches console.error/warn to write to
 // ~/.houston/logs/frontend.log (or ~/.dev-houston/logs/frontend.log in dev).
@@ -28,11 +35,12 @@ initFrontendLogging();
 window.onerror = (_event, _source, _line, _col, error) => {
   const message = error?.message ?? String(_event);
   console.error("[global:error]", message, error);
-  analytics.captureException(error ?? new Error(message), {
+  const err = error ?? new Error(message);
+  analytics.captureException(err, {
     source: "uncaught_error",
     error_kind: classifyAnalyticsError(message),
   });
-  showErrorToast("uncaught_error", message);
+  showErrorToast("uncaught_error", message, err);
 };
 
 window.onunhandledrejection = (event: PromiseRejectionEvent) => {
@@ -42,7 +50,7 @@ window.onunhandledrejection = (event: PromiseRejectionEvent) => {
     source: "unhandled_rejection",
     error_kind: classifyAnalyticsError(message),
   });
-  showErrorToast("unhandled_rejection", message);
+  showErrorToast("unhandled_rejection", message, event.reason);
 };
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
@@ -54,7 +62,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
       source: "react_crash",
       error_kind: classifyAnalyticsError(error.message),
     });
-    showErrorToast("react_crash", error.message);
+    showErrorToast("react_crash", error.message, error);
   }
   render() {
     if (this.state.error) {
@@ -106,9 +114,11 @@ function EngineGate({ children }: { children: ReactNode }) {
     };
   }, [ready]);
 
-  // Locale resolution moved to <LanguageGate>, which both reads the
-  // persisted pref and handles the first-run picker. That gate sits
-  // inside <I18nextProvider> and owns the full locale story.
+  // Locale resolution lives in <LanguageGate>: it resolves the effective
+  // locale from the engine (active workspace override → global preference),
+  // applies it to the live i18n instance, and handles the first-run picker.
+  // That gate sits inside <I18nextProvider> and owns the full locale story —
+  // the engine, not localStorage, is the source of truth.
 
   if (!ready) {
     // Use the i18n singleton directly — this renders OUTSIDE

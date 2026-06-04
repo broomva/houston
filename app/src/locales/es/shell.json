@@ -29,6 +29,10 @@
     "newMission": "Nueva misión",
     "startTour": "Guíame"
   },
+  "sentrySmoke": {
+    "nativeTriggeredTitle": "Prueba nativa de Sentry activada",
+    "nativeTriggeredDescription": "Revisa Sentry para sentry-native-stack-smoke-test."
+  },
   "agentDelete": {
     "title": "¿Eliminar el agente?",
     "description": "Se eliminará el agente y todos sus datos de forma permanente. Esta acción no se puede deshacer."
@@ -158,7 +162,8 @@
     "primaryAction": "Actualizar y reiniciar",
     "installingAction": "Instalando actualización...",
     "relaunchAction": "Reiniciar Houston",
-    "retryAction": "Intentar otra vez"
+    "retryAction": "Intentar otra vez",
+    "dismissAction": "Descartar actualización por ahora"
   },
   "store": {
     "searchPlaceholder": "Buscar en la tienda...",
@@ -311,9 +316,9 @@
       "checkStatus": "Ver página de estado"
     },
     "sessionResumeMissing": {
-      "title": "No se puede retomar esta sesión",
-      "body": "La sesión anterior de {{provider}} ya no existe. Inicia una misión nueva para continuar.",
-      "startFresh": "Empezar de nuevo"
+      "title": "Sesión reiniciada",
+      "body": "La conversación anterior de {{provider}} no se pudo reabrir, así que Houston la reinició. Tu mensaje se envió de nuevo y el asistente está respondiendo abajo.",
+      "tryAgain": "Reintentar"
     },
     "malformedResponse": {
       "title": "Respuesta dañada",
@@ -370,5 +375,20 @@
       "panelEscape": "Salir del chat y luego cerrar",
       "cheatsheet": "Mostrar esta hoja"
     }
+  },
+  "userMenu": {
+    "sendFeedback": "Enviar comentarios"
+  },
+  "feedback": {
+    "title": "Enviar comentarios",
+    "description": "Los reportes de errores nos llegan automáticamente. Esto es para todo lo demás: algo que se siente raro, un flujo que falló, una idea.",
+    "placeholder": "¿Qué tienes en mente?",
+    "send": "Enviar",
+    "sending": "Enviando...",
+    "cancel": "Cancelar",
+    "successTitle": "Recibido, gracias por el reporte.",
+    "successWithId": "El centro de control está en eso. Referencia: {{id}}",
+    "successNoId": "El centro de control está en eso.",
+    "errorTitle": "No se pudo enviar el reporte"
   }
 }

@@ -2,7 +2,9 @@ use std::collections::HashMap;
 
 use super::provider::anthropic_classify;
 use super::provider_error_kind::{truncate_excerpt, ProviderError};
-use super::types::{AssistantMessage, ClaudeEvent, ContentBlock, FeedItem, UserMessage};
+use super::types::{
+    AssistantMessage, ClaudeEvent, CompactTrigger, ContentBlock, FeedItem, TokenUsage, UserMessage,
+};
 
 const ANTHROPIC: &str = "anthropic";
 
@@ -17,6 +19,16 @@ pub struct StreamAccumulator {
     text_buffer: String,
     /// Accumulated thinking across all thinking content blocks.
     thinking_buffer: String,
+    /// Token usage from the most recent (non-partial) assistant message.
+    /// The last assistant message of a turn carries the full prompt size of
+    /// the final API request, so this is the authoritative context-window
+    /// reading. Attached to `FinalResult` when the turn's `result` arrives.
+    ///
+    /// A `StreamAccumulator` is recreated per subprocess (see
+    /// `session_io::read_claude_stdout`), and Claude runs one process per
+    /// turn, so this never carries a stale reading into a later turn — the
+    /// success path also `.take()`s it for hygiene.
+    last_usage: Option<TokenUsage>,
 }
 
 #[derive(Debug)]
@@ -153,7 +165,9 @@ pub fn parse_event(line: &str, acc: &mut StreamAccumulator) -> Vec<FeedItem> {
     };
 
     match event {
-        ClaudeEvent::System { .. } => vec![],
+        ClaudeEvent::System { subtype, extra, .. } => {
+            parse_system_event(subtype.as_deref(), &extra)
+        }
         ClaudeEvent::Assistant {
             subtype, message, ..
         } => {
@@ -163,6 +177,12 @@ pub fn parse_event(line: &str, acc: &mut StreamAccumulator) -> Vec<FeedItem> {
             if subtype.as_deref() != Some("partial") {
                 acc.text_buffer.clear();
                 acc.thinking_buffer.clear();
+                // Capture this request's usage. Later assistant messages in
+                // the same turn overwrite it, so the final one wins —
+                // exactly the context-window size we want to report.
+                if let Some(usage) = message.as_ref().and_then(|m| m.usage) {
+                    acc.last_usage = Some(usage.normalize());
+                }
             }
             parse_assistant_event(subtype.as_deref(), message)
         }
@@ -173,7 +193,7 @@ pub fn parse_event(line: &str, acc: &mut StreamAccumulator) -> Vec<FeedItem> {
             is_error,
             cost_usd,
             duration_ms,
-            usage,
+            usage: result_usage,
             ..
         } => {
             if subtype.as_deref() == Some("error") || is_error == Some(true) {
@@ -193,15 +213,28 @@ pub fn parse_event(line: &str, acc: &mut StreamAccumulator) -> Vec<FeedItem> {
                     });
                 return vec![FeedItem::ProviderError(typed)];
             }
-            let usage = usage.unwrap_or_default();
+            // Prefer the per-request usage captured from the last assistant
+            // message (the true context-window size); fall back to the
+            // terminal event's own usage block when no assistant message
+            // carried one. This normalized `usage` feeds the upstream
+            // context-usage indicator.
+            let usage = acc
+                .last_usage
+                .take()
+                .or_else(|| result_usage.map(|u| u.normalize()));
+            // The fork's `advanced.context_meter` wheel reads the raw
+            // Anthropic four-way split off the flat fields. Surface them
+            // straight from the terminal event's usage block; absent stays
+            // `None` (unknown), never coerced to zero.
             vec![FeedItem::FinalResult {
                 result: result.unwrap_or_default(),
                 cost_usd,
                 duration_ms,
-                input_tokens: usage.input_tokens,
-                output_tokens: usage.output_tokens,
-                cache_creation_input_tokens: usage.cache_creation_input_tokens,
-                cache_read_input_tokens: usage.cache_read_input_tokens,
+                input_tokens: result_usage.map(|u| u.input_tokens),
+                output_tokens: result_usage.map(|u| u.output_tokens),
+                cache_creation_input_tokens: result_usage.map(|u| u.cache_creation_input_tokens),
+                cache_read_input_tokens: result_usage.map(|u| u.cache_read_input_tokens),
+                usage,
             }]
         }
         ClaudeEvent::StreamEvent { event: inner, .. } => acc.handle(inner),
@@ -240,6 +273,45 @@ fn parse_rate_limit_event(extra: serde_json::Value) -> Vec<FeedItem> {
         retry_after_seconds,
         message,
     })]
+}
+
+/// Parse Claude's `system` events. Most are internal (`init`, `api_retry`,
+/// `plugin_install`) and produce nothing. The one we surface is
+/// `compact_boundary`: Claude Code auto-compacts its own transcript as it
+/// nears the context window and emits this marker. We lift it to a
+/// [`FeedItem::ContextCompacted`] (trigger `Native`) so the UI can show a
+/// subtle divider — the user's visible chat is untouched; only the agent's
+/// working context shrank.
+///
+/// Verified against Claude Code 2.1.160: the wire line is a top-level
+/// `{"type":"system","subtype":"compact_boundary","session_id":...,"uuid":...,
+/// "compact_metadata":{"trigger":"auto"|"manual","pre_tokens":N,...}}`.
+/// `compact_metadata` lands in the flattened `extra`. We read leniently
+/// (number-or-string `pre_tokens`) so a casing/format shift doesn't crash.
+fn parse_system_event(subtype: Option<&str>, extra: &serde_json::Value) -> Vec<FeedItem> {
+    if subtype != Some("compact_boundary") {
+        return vec![];
+    }
+    let pre_tokens = extra
+        .get("compact_metadata")
+        .and_then(|m| m.get("pre_tokens").or_else(|| m.get("preTokens")))
+        .and_then(json_u64)
+        .or_else(|| {
+            extra
+                .get("pre_tokens")
+                .or_else(|| extra.get("preTokens"))
+                .and_then(json_u64)
+        });
+    vec![FeedItem::ContextCompacted {
+        trigger: CompactTrigger::Native,
+        pre_tokens,
+    }]
+}
+
+/// Read a JSON value as a `u64`, tolerating a numeric string (some Claude
+/// telemetry paths stringify token counts).
+fn json_u64(v: &serde_json::Value) -> Option<u64> {
+    v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok()))
 }
 
 fn parse_assistant_event(
@@ -395,6 +467,42 @@ mod tests {
             }
             other => panic!("expected Unauthenticated, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn parse_compact_boundary_emits_context_compacted() {
+        // Verbatim shape from Claude Code 2.1.160's stream-json output: a
+        // top-level `system` event whose `compact_metadata` carries the
+        // pre-compaction token count. We surface it as a Native marker.
+        let line = r#"{"type":"system","subtype":"compact_boundary","session_id":"s1","uuid":"u1","compact_metadata":{"trigger":"auto","pre_tokens":185000,"post_tokens":42000,"duration_ms":1200}}"#;
+        let items = parse_event(line, &mut acc());
+        assert_eq!(items.len(), 1);
+        match &items[0] {
+            FeedItem::ContextCompacted {
+                trigger,
+                pre_tokens,
+            } => {
+                assert_eq!(*trigger, CompactTrigger::Native);
+                assert_eq!(*pre_tokens, Some(185_000));
+            }
+            other => panic!("expected ContextCompacted, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_compact_boundary_tolerates_missing_metadata() {
+        // A future/variant shape without compact_metadata still produces the
+        // marker (pre_tokens unknown) rather than crashing or going silent.
+        let line = r#"{"type":"system","subtype":"compact_boundary","session_id":"s1","uuid":"u1"}"#;
+        let items = parse_event(line, &mut acc());
+        assert_eq!(items.len(), 1);
+        assert!(matches!(
+            &items[0],
+            FeedItem::ContextCompacted {
+                trigger: CompactTrigger::Native,
+                pre_tokens: None,
+            }
+        ));
     }
 
     #[test]
@@ -700,5 +808,62 @@ mod tests {
             FeedItem::ProviderError(_) => {}
             other => panic!("expected ProviderError, got {other:?}"),
         }
+    }
+
+    fn final_result_usage(items: &[FeedItem]) -> Option<TokenUsage> {
+        items.iter().find_map(|i| match i {
+            FeedItem::FinalResult { usage, .. } => *usage,
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn assistant_usage_is_attached_to_final_result() {
+        let mut a = acc();
+        // Final assistant message carrying Anthropic's four-way usage block.
+        let assistant = r#"{"type":"assistant","message":{"content":[{"type":"text","text":"hi"}],"usage":{"input_tokens":1200,"cache_creation_input_tokens":300,"cache_read_input_tokens":150000,"output_tokens":420}}}"#;
+        let _ = parse_event(assistant, &mut a);
+        let result = r#"{"type":"result","result":"Done","session_id":"s1"}"#;
+        let usage =
+            final_result_usage(&parse_event(result, &mut a)).expect("final result carries usage");
+        // context = input + cache_creation + cache_read (all occupy the window).
+        assert_eq!(usage.context_tokens, 1200 + 300 + 150_000);
+        assert_eq!(usage.cached_tokens, 150_000);
+        assert_eq!(usage.output_tokens, 420);
+    }
+
+    #[test]
+    fn last_assistant_usage_wins_within_a_turn() {
+        let mut a = acc();
+        // Two assistant messages (e.g. a tool round-trip): the second has the
+        // larger, more complete context and must be the one reported.
+        let first = r#"{"type":"assistant","message":{"content":[{"type":"text","text":"step"}],"usage":{"input_tokens":1000,"cache_read_input_tokens":0,"output_tokens":10}}}"#;
+        let second = r#"{"type":"assistant","message":{"content":[{"type":"text","text":"done"}],"usage":{"input_tokens":50,"cache_read_input_tokens":2000,"output_tokens":80}}}"#;
+        let _ = parse_event(first, &mut a);
+        let _ = parse_event(second, &mut a);
+        let usage = final_result_usage(&parse_event(
+            r#"{"type":"result","result":"Done"}"#,
+            &mut a,
+        ))
+        .expect("usage present");
+        assert_eq!(usage.context_tokens, 50 + 2000);
+    }
+
+    #[test]
+    fn result_usage_used_when_no_assistant_usage() {
+        // No assistant message this turn — fall back to the terminal event's
+        // own usage block so the indicator still updates.
+        let line = r#"{"type":"result","result":"Done","usage":{"input_tokens":10,"cache_read_input_tokens":90000,"output_tokens":50}}"#;
+        let usage = final_result_usage(&parse_event(line, &mut acc()))
+            .expect("usage from result event");
+        assert_eq!(usage.context_tokens, 10 + 90_000);
+        assert_eq!(usage.cached_tokens, 90_000);
+        assert_eq!(usage.output_tokens, 50);
+    }
+
+    #[test]
+    fn final_result_without_any_usage_is_none() {
+        let line = r#"{"type":"result","result":"Done","session_id":"s1"}"#;
+        assert!(final_result_usage(&parse_event(line, &mut acc())).is_none());
     }
 }

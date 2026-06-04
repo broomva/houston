@@ -6,7 +6,7 @@
 use crate::routes::error::ApiError;
 use crate::state::ServerState;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     routing::{get, post},
     Json, Router,
 };
@@ -24,6 +24,12 @@ pub fn router() -> Router<Arc<ServerState>> {
         // writes `~/.gemini/oauth_creds.json` itself. Same pattern as
         // `claude auth login --claudeai` and `codex login` for the
         // other providers.
+        //
+        // `?deviceAuth=true` requests the provider's headless device-code
+        // flow (OpenAI/codex `--device-auth`). Remote clients (webapp,
+        // mobile) set it because the CLI's `localhost` OAuth callback can't
+        // reach a browser on another machine; desktop omits it and keeps the
+        // browser-loopback login.
         .route("/providers/:name/login", post(login))
         // POST /providers/:name/login/code submits the OAuth
         // verification code the user pasted from their browser.
@@ -34,6 +40,14 @@ pub fn router() -> Router<Arc<ServerState>> {
         // input, and the submitted code is written back to the CLI's
         // stdin so it can exchange for an OAuth token.
         .route("/providers/:name/login/code", post(login_code))
+        // POST /providers/:name/login/cancel aborts an in-flight
+        // browser sign-in. Without it, a user who closes the OAuth tab
+        // before finishing is stuck: the CLI keeps its localhost
+        // callback open, so the engine only gives up after the 10-min
+        // relay timeout, and a fresh Connect click is rejected as
+        // "already pending" until then. Cancel kills the subprocess and
+        // frees the slot so the user can retry immediately (#237).
+        .route("/providers/:name/login/cancel", post(login_cancel))
         .route("/providers/:name/logout", post(logout))
         // Gemini-only: persist an API key the user pasted in the picker
         // dialog to `~/.gemini/.env`. Alternative to the OAuth flow for
@@ -52,12 +66,26 @@ async fn status(
     Ok(Json(provider::check_status(p).await?))
 }
 
+/// Optional query for [`login`]. `?deviceAuth=true` requests the
+/// provider's headless device-code flow (OpenAI/codex). Remote clients
+/// (webapp, mobile) set it because they can't receive the CLI's
+/// `localhost` OAuth callback. Absent (desktop, older clients) keeps the
+/// default browser-loopback login. Ignored by providers without a device
+/// flow.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LoginQuery {
+    #[serde(default)]
+    device_auth: bool,
+}
+
 async fn login(
     State(st): State<Arc<ServerState>>,
     Path(name): Path<String>,
+    Query(q): Query<LoginQuery>,
 ) -> Result<(), ApiError> {
     let p = provider::parse(&name)?;
-    provider::launch_login(p, st.engine.events.clone()).await?;
+    provider::launch_login(p, st.engine.events.clone(), q.device_auth).await?;
     Ok(())
 }
 
@@ -74,6 +102,15 @@ async fn login_code(
 ) -> Result<(), ApiError> {
     let p = provider::parse(&name)?;
     provider::submit_login_code(p, &body.code).await?;
+    Ok(())
+}
+
+async fn login_cancel(
+    State(_st): State<Arc<ServerState>>,
+    Path(name): Path<String>,
+) -> Result<(), ApiError> {
+    let p = provider::parse(&name)?;
+    provider::cancel_login(p).await?;
     Ok(())
 }
 

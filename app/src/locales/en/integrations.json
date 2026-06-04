@@ -25,7 +25,32 @@
     "count_one": "{{count}} app",
     "count_other": "{{count}} apps",
     "manageOn": "Manage {{name}}",
-    "dotAria": "Connected"
+    "dotAria": "Connected",
+    "menu": {
+      "aria": "Options for {{name}}",
+      "manage": "Manage on Composio",
+      "reconnect": "Reconnect",
+      "disconnect": "Disconnect"
+    },
+    "reconnect": {
+      "openedTitle": "Reconnecting {{name}}",
+      "openedBody": "Finish signing in again in your browser, then come back here.",
+      "doneTitle": "{{name}} reconnected"
+    },
+    "disconnect": {
+      "confirmTitle": "Disconnect {{name}}?",
+      "confirmBody": "Your agent will lose access to {{name}}. You can reconnect it anytime.",
+      "confirmAction": "Disconnect",
+      "cancel": "Cancel"
+    }
+  },
+  "signOut": {
+    "button": "Sign out",
+    "loading": "Signing out…",
+    "confirmTitle": "Sign out of Composio?",
+    "confirmBody": "You'll need to sign in again and reconnect any apps you use. This won't uninstall the provider.",
+    "confirmAction": "Sign out",
+    "cancel": "Cancel"
   },
   "browse": {
     "title": "Browse all apps",
@@ -33,6 +58,8 @@
     "count_other": "{{count}} apps",
     "searchPlaceholder": "Search apps...",
     "allCategories": "All categories",
+    "searchCategories": "Search categories...",
+    "noCategoryResults": "No matching categories.",
     "noResults": "No matching apps found.",
     "loadMoreWithRemaining": "Load more ({{count}} remaining)",
     "connectTitle": "Connect {{name}}"

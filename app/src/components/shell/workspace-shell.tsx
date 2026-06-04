@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Compass, Plus } from "lucide-react";
 import {
@@ -13,8 +13,10 @@ import {
   TooltipTrigger,
   type Toast,
 } from "@houston-ai/core";
+import { analytics } from "../../lib/analytics";
 import { shortcutLabel } from "../../lib/shortcuts";
 import { TabBar } from "@houston-ai/layout";
+import { STANDARD_TABS, DEFAULT_TAB_ID } from "../../agents/standard-tabs";
 import { useActivity } from "../../hooks/queries";
 import { useAgentCatalogStore } from "../../stores/agent-catalog";
 import { useAgentStore } from "../../stores/agents";
@@ -66,42 +68,37 @@ export function WorkspaceShell({ toasts, onDismissToast }: WorkspaceShellProps) 
   const setUiTourActive = useUIStore((s) => s.setUiTourActive);
   const [panelContainer, setPanelContainer] = useState<HTMLDivElement | null>(null);
   const agentDef = currentAgent ? getById(currentAgent.configId) : undefined;
-  const baseTabs = agentDef?.config.tabs ?? [];
-  // Phase 3 — `advanced.git_panel` injects a `Git` tab on agents whose
-  // working directory is a git repo. The flag is per-install (UI-only
-  // enforcement); the repo check is per-agent so non-code agents stay
-  // un-cluttered.
+  // Upstream #291 made every agent render one hardcoded STANDARD_TABS set.
+  // The fork layers three flag-gated power-user tabs on top of that base —
+  // they are per-install UI flags, not per-agent declarations, so they survive
+  // the refactor as additive extras rather than re-introducing the dropped
+  // per-agent `tabs` config.
+  // Phase 3 — `advanced.git_panel` injects a `Git` tab on agents whose working
+  // directory is a git repo (repo check is per-agent so non-code agents stay
+  // un-cluttered).
   const gitPanelFlagOn = useFeatureFlag("advanced.git_panel");
   const gitRepoCheck = useIsGitRepo(
     gitPanelFlagOn && currentAgent ? currentAgent.folderPath : null,
   );
   const showGitTab = gitPanelFlagOn && gitRepoCheck.data === true;
-  // Phase 4 — `advanced.timeline` injects a `Timeline` tab on every agent
-  // (no per-agent check; every agent has at least the chance of activities).
+  // Phase 4 — `advanced.timeline` injects a `Timeline` tab on every agent.
   const timelineFlagOn = useFeatureFlag("advanced.timeline");
   const showTimelineTab = timelineFlagOn && Boolean(currentAgent);
   // Phase 5 — `advanced.checkpoints` injects a `Checkpoints` tab on every agent.
   const checkpointsFlagOn = useFeatureFlag("advanced.checkpoints");
   const showCheckpointsTab = checkpointsFlagOn && Boolean(currentAgent);
   const tabs = [
-    ...baseTabs,
+    ...STANDARD_TABS,
     ...(showGitTab
-      ? [{ id: "git", label: "Git", builtIn: "git" as const }]
+      ? [{ id: "git", label: "Git", builtIn: "git", badge: undefined } as const]
       : []),
     ...(showTimelineTab
-      ? [{ id: "timeline", label: "Timeline", builtIn: "timeline" as const }]
+      ? [{ id: "timeline", label: "Timeline", builtIn: "timeline", badge: undefined } as const]
       : []),
     ...(showCheckpointsTab
-      ? [
-          {
-            id: "checkpoints",
-            label: "Checkpoints",
-            builtIn: "checkpoints" as const,
-          },
-        ]
+      ? [{ id: "checkpoints", label: "Checkpoints", builtIn: "checkpoints", badge: undefined } as const]
       : []),
   ];
-  const hasActivityTab = tabs.some((tab) => tab.id === "activity");
   const { data: activities } = useActivity(currentAgent?.folderPath);
   const needsYouCount = (activities ?? []).filter((a) => a.status === "needs_you").length;
   const isAgentView =
@@ -109,18 +106,35 @@ export function WorkspaceShell({ toasts, onDismissToast }: WorkspaceShellProps) 
     viewMode !== "connections" &&
     viewMode !== "linear" &&
     viewMode !== "settings";
+  // Standard ids plus whichever flag-gated tabs are currently active. Used both
+  // to spotlight tour targets and to gate the viewMode-reset effect so an active
+  // git/timeline/checkpoints tab isn't bounced back to the default.
   const tabIds = new Set(tabs.map((tab) => tab.id));
-  const firstAgentTab = agentDef?.config.defaultTab ?? tabs[0]?.id ?? "activity";
-  // Map a desired tab id to one this agent actually has, falling back to its
-  // default. Keeps the tour from spotlighting an absent tab on agents that
-  // don't expose every built-in.
-  const tabOr = (id: string) => (tabIds.has(id) ? id : firstAgentTab);
+  const tabOr = (id: string) => (tabIds.has(id) ? id : DEFAULT_TAB_ID);
 
   useEffect(() => {
-    if (isAgentView && tabs.length > 0 && !tabs.some((tab) => tab.id === viewMode)) {
-      setViewMode(agentDef?.config.defaultTab ?? tabs[0].id);
+    if (isAgentView && !tabIds.has(viewMode)) {
+      setViewMode(DEFAULT_TAB_ID);
     }
-  }, [agentDef, isAgentView, setViewMode, tabs, viewMode]);
+    // tabIds is derived each render from the active flag-gated tab set; depend on
+    // its serialized contents so toggling a flag re-evaluates the active tab.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAgentView, setViewMode, viewMode, tabs.map((t) => t.id).join(",")]);
+
+  // Single tab_opened analytics point — watches viewMode regardless of which
+  // path triggered the change (TabBar click, sidebar nav, keyboard shortcut,
+  // programmatic redirect). Fires on real transitions only, not on initial
+  // mount (the first dashboard/agent landing already shows in install_created).
+  const lastTrackedViewModeRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (lastTrackedViewModeRef.current === null) {
+      lastTrackedViewModeRef.current = viewMode;
+      return;
+    }
+    if (lastTrackedViewModeRef.current === viewMode) return;
+    analytics.track("tab_opened", { tab_name: viewMode });
+    lastTrackedViewModeRef.current = viewMode;
+  }, [viewMode]);
 
   useKeyboardShortcuts();
 
@@ -146,7 +160,7 @@ export function WorkspaceShell({ toasts, onDismissToast }: WorkspaceShellProps) 
                 <LinearView />
               ) : viewMode === "settings" ? (
                 <SettingsView />
-              ) : currentAgent && agentDef && tabs.length > 0 && isAgentView ? (
+              ) : currentAgent && agentDef && isAgentView ? (
                 <>
                   <div data-tour-target="tabs">
                   <TabBar
@@ -155,14 +169,12 @@ export function WorkspaceShell({ toasts, onDismissToast }: WorkspaceShellProps) 
                       id: tab.id,
                       label: t(`agents:tabLabels.${tab.id}`, { defaultValue: tab.label }),
                       badge: tab.badge === "activity" ? needsYouCount : undefined,
-                      disabled: tab.disabled,
-                      chip: tab.chip,
                     }))}
                     activeTab={viewMode}
                     onTabChange={setViewMode}
                     actions={
                       <div data-keep-panel-open className="flex items-center gap-2">
-                        {currentAgent && hasActivityTab && (
+                        {currentAgent && (
                           <MissionSearchInput
                             value={agentMissionSearchQuery}
                             isSearchingText={agentMissionSearchLoading}
@@ -228,8 +240,8 @@ export function WorkspaceShell({ toasts, onDismissToast }: WorkspaceShellProps) 
                     <AgentRenderer
                       agentDef={agentDef}
                       agent={currentAgent}
-                      tabs={tabs}
                       activeTabId={viewMode}
+                      tabs={tabs}
                     />
                   </main>
                 </>
@@ -275,19 +287,19 @@ export function WorkspaceShell({ toasts, onDismissToast }: WorkspaceShellProps) 
               title: t("shell:uiTour.steps.assistant.title"),
               body: t("shell:uiTour.steps.assistant.body"),
               targetSelector: "[data-tour-target='agents']",
-              onEnter: () => setViewMode(firstAgentTab),
+              onEnter: () => setViewMode(DEFAULT_TAB_ID),
             },
             {
               title: t("shell:uiTour.steps.board.title"),
               body: t("shell:uiTour.steps.board.body"),
               targetSelector: "[data-tour-target='main']",
-              onEnter: () => setViewMode(firstAgentTab),
+              onEnter: () => setViewMode(DEFAULT_TAB_ID),
             },
             {
               title: t("shell:uiTour.steps.newMission.title"),
               body: t("shell:uiTour.steps.newMission.body"),
               targetSelector: "[data-tour-target='newMission']",
-              onEnter: () => setViewMode(firstAgentTab),
+              onEnter: () => setViewMode(DEFAULT_TAB_ID),
             },
             {
               title: t("shell:uiTour.steps.tabActivity.title"),
@@ -331,7 +343,7 @@ export function WorkspaceShell({ toasts, onDismissToast }: WorkspaceShellProps) 
               targetSelector: "[data-tour-target='appTour']",
               onEnter: () => {
                 setCreateAgentDialogOpen(false);
-                setViewMode(firstAgentTab);
+                setViewMode(DEFAULT_TAB_ID);
               },
             },
             {
@@ -340,7 +352,7 @@ export function WorkspaceShell({ toasts, onDismissToast }: WorkspaceShellProps) 
               targetSelector: "[data-tour-target='newAgent']",
               onEnter: () => {
                 setCreateAgentDialogOpen(false);
-                setViewMode(firstAgentTab);
+                setViewMode(DEFAULT_TAB_ID);
               },
             },
             {

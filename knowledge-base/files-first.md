@@ -9,6 +9,8 @@ If app-specific → `.houston/`.
 ## Layout
 
 ```
+~/.houston/workspaces/workspaces.json   Workspace[] index: id, name, isDefault, createdAt, locale?
+                                          (locale = optional per-workspace UI-locale override; absent = inherit global `locale` pref)
 ~/.houston/workspaces/{Workspace}/{Agent}/
   .houston/
     agent.json                  AgentMeta (id, manifest_id, created_at, last_opened_at)
@@ -64,9 +66,16 @@ If app-specific → `.houston/`.
 Frontend never touches the filesystem directly. All `.houston/` reads
 and writes flow through `@houston-ai/engine-client` → `houston-engine`
 REST routes (`/v1/agents/:path/files/:kind`, etc.), which call into
-`houston-agent-files`. Writes are atomic (temp + rename) and emit a
+`houston-agent-files`. Writes are atomic (unique temp + rename) and emit a
 matching `HoustonEvent` over the WS. No typed CRUD — per-type folder +
 schema + a generic read/write pair covers everything.
+
+Typed JSON readers preserve corrupt files as
+`.houston/<type>/<type>.json.corrupt-<timestamp>-<uuid>.bak` before
+repairing. If a file has trailing JSON data, Houston keeps the first valid
+value and rewrites the file. If `routine_runs.json` is otherwise
+unreadable, Houston resets only the run history to `[]` after backing up
+the original so routine definitions can load and run again.
 
 ## Schemas
 Authoritative. Live in `ui/agent-schemas/src/*.schema.json`. Embedded in Rust via `include_str!` in `houston-agent-files::schemas`. Seeded into each agent's `.houston/<type>/<type>.schema.json` on first launch. Prompts instruct model to read schema before writing data file.
@@ -91,12 +100,12 @@ session key. Provider-scoped `.invalid` files stop a rejected legacy ID
 from being retried by the provider that rejected it.
 
 ## Atomic writes
-All writes: temp file + rename. Path-traversal safe via `houston-agent-files::safe_relative`.
+All writes: unique temp file + rename. Path-traversal safe via `houston-agent-files::safe_relative`.
 
 ## Activity statuses
-`running` · `needs_you` · `done` · `error`
+`running` · `needs_you` · `done` · `error` · `archived`
 
-Source of truth: `ui/agent-schemas/src/activity.schema.json`. The board renders `error` inside the **needs you** column with a red border so failed sessions don't vanish. Any code path that may have flipped a row to `running` (optimistic UI write, engine `set_status_by_session_key("running")`) MUST guarantee a terminal status on exit — including cancel-of-queued and early start-failure, both handled in `engine/houston-engine-core/src/sessions/mod.rs`. Skipping the terminal flip leaves missions visibly stuck on "running" forever.
+Source of truth: `ui/agent-schemas/src/activity.schema.json` (the embedded copy in `houston-agent-files::schemas` is `include_str!`'d from that one file; `seed_schemas` re-writes the on-disk per-agent copy on every open, so adding an enum value reaches existing users with no migration). The board renders `error` inside the **needs you** column with a red border so failed sessions don't vanish. `archived` is the only status with no board column: archived missions drop off the active board (and out of the agent-header search / arrow-nav / the needs-you badge / Mission Control) and surface in the per-agent **Archived missions** tab as a list. The Archived tab carries its own search input (separate state from the active-board search) so archived missions stay findable by title + chat history (issue #382). Replying to an archived mission re-activates it — `sessions::start` flips it back to `running` via `set_status_by_session_key`, so it leaves the Archived tab and returns to the active board (issue #360). Bulk archive/move/delete + the Done-column "archive all" run entirely in the TS data layer (`app/src/data/activity.ts` — one read-mutate-write per action, NOT per-id engine calls). The per-agent board also supports **drag & drop**: dragging a card onto another column patches its status via `useUpdateActivity` (issue #399). The drop rule reuses the bulk-move rule exactly — only `needs_you` ⇄ `done`, never into `running` (a session does that), never its own section — and lives in `canDropMission` (`app/src/lib/mission-selection.ts`). The mechanics (draggable cards, droppable columns, highlight) are generic and live in `@houston-ai/board` (`onItemMove` + `canDropItem` props, native HTML5 DnD); Mission Control passes neither yet, so its board has no DnD until that refactor lands. Any code path that may have flipped a row to `running` (optimistic UI write, engine `set_status_by_session_key("running")`) MUST guarantee a terminal status on exit — including cancel-of-queued and early start-failure, both handled in `engine/houston-engine-core/src/sessions/mod.rs`. Skipping the terminal flip leaves missions visibly stuck on "running" forever.
 
 ## Skills discovery
 Skills live at `.agents/skills/<name>/SKILL.md`. Houston mirrors to `.claude/skills/<name>` via symlink (Claude Code reads). Flat `.md` under `.agents/skills/` auto-migrated to `<name>/SKILL.md` on next `list_skills`.
@@ -122,8 +131,13 @@ Chat sessions snapshot user-visible project files before and after the
 CLI run. The engine diffs those snapshots and persists a `file_changes`
 feed item with `created` and `modified` absolute paths. The visible-file
 filter is shared with the project file browser, so helper files such as
-Python scripts, JSON, Markdown, `.houston/`, `.agents/`, and dotdirs stay
-out of non-technical chat summaries.
+Python scripts, JSON, the agent role files (`CLAUDE.md` / `AGENTS.md` /
+`GEMINI.md`), `.houston/`, `.agents/`, and dotdirs stay out of
+non-technical chat summaries. Markdown deliverables the agent writes
+(reports, plans, notes) DO surface — they are documents, not config
+(issue #294). The allowlist + role-file denylist live in
+`USER_EXTENSIONS` / `HIDDEN_ROLE_FILES` in
+`engine/houston-engine-core/src/agents/files.rs`.
 
 Attribution is strict only when one session owns a working directory. The
 engine enforces that by holding a per-`working_dir` guard for chat and

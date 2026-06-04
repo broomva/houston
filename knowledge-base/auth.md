@@ -114,6 +114,47 @@ expired OAuth/API-key messages) and `houston-agents-conversations` emits
 `codex login` through `/v1/providers/:name/login` and polls provider status
 until the CLI reports authenticated.
 
+**Headless connect uses two completion shapes.** A remote client (the webapp
+or mobile PWA pointed at a hosted engine) can't receive the CLI's `localhost`
+OAuth callback, so the connect surfaces that render `ProviderLoginDialog`
+(`ProviderPicker`, `ProviderSettings`) pass `deviceAuth: !isTauri()`. That
+flips codex to its device-code flow (`codex login --device-auth`): the engine
+surfaces a verification URL plus a one-time `ProviderLoginUrl.user_code`, the
+user enters that code on OpenAI's page, and codex polls + writes
+`~/.codex/auth.json` itself (no paste-back). **codex colourizes stdout even
+over a pipe**, so the relay strips ANSI escape sequences from each line before
+scanning (`login_relay::strip_ansi`): the `\x1b[94m` wrapper's trailing `m`
+otherwise sits flush against the code and defeats the `\b` anchor in the
+device-code regex, leaving `user_code` unset and the dialog wrongly stuck on
+paste-back. Claude has no device variant —
+its standard login already completes headlessly via the paste-back code
+(`/v1/providers/:name/login/code`), so the flag is a no-op for it. Note the
+mid-chat `ProviderReconnectCard` / `auth-reconnect-banner` don't render the
+dialog, so headless re-auth currently routes through the picker/settings; the
+device-code requires the user's OpenAI account to have device sign-in enabled.
+
+### Cancelling / retrying a stuck sign-in
+
+A login subprocess only ends when the CLI exits, the user pastes a code, or
+the 10-minute relay timeout fires (`LOGIN_SESSION_TIMEOUT` in
+`engine-core::provider::login_relay`). If the user closes the OAuth tab before
+finishing, the CLI keeps its localhost callback open and just hangs — so the
+status poll never flips to authenticated and the connect UI spins. Worse, a
+fresh Connect click is rejected by `insert_session` as "already pending" until
+the timeout, which read to users as "I have to restart the app" (#237).
+
+`POST /v1/providers/:name/login/cancel` → `cancel_login` fixes this: it removes
+the in-flight session from `LOGIN_SESSIONS` **eagerly** (so the next Connect
+isn't rejected) and signals the relay task — which holds an `Arc<Notify>` clone
+— to kill the subprocess. The relay emits a **benign**
+`ProviderLoginComplete { success: false, error: null }`; the frontend treats a
+completion with no `error` as "not an error" and silently clears its pending
+spinner (no toast). A monotonic per-session token guards the relay's
+end-of-life map cleanup so it can't evict a freshly-spawned retry session that
+reused the same provider id. All three connect surfaces wire to it: the
+onboarding brain mission's "Cancel and try again", the workspace-setup
+`ProviderPicker`, and the settings `ProviderSettings` account rows.
+
 Codex has one extra wrinkle: it can emit retry-shaped 401 messages while it
 refreshes or reconnects, then continue successfully. Treat the synthetic
 `__auth_retry__` marker as provisional. Suppress it, remember it, and emit

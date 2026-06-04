@@ -13,7 +13,7 @@ export interface ScheduleOptions {
 }
 
 /** Parse "HH:MM" into { hour, minute } */
-function parseTime(time: string): { hour: number; minute: number } {
+export function parseTime(time: string): { hour: number; minute: number } {
   const [h, m] = time.split(":").map(Number)
   return { hour: h ?? 9, minute: m ?? 0 }
 }
@@ -83,16 +83,28 @@ function ordinal(n: number): string {
   return n + (s[(v - 20) % 10] || s[v] || s[0])
 }
 
-/** Detect a preset from a cron expression (best-effort) */
+/**
+ * Classify a cron expression for the schedule builder. Three-way result, and
+ * the distinction is load-bearing:
+ *   - a known preset slug  → the matching preset UI is shown
+ *   - `"custom"`           → a valid-but-non-preset cron (e.g. `*​/5 * * * *`);
+ *                            the raw-cron input is shown, seeded with the value
+ *   - `null`               → no schedule at all (empty string)
+ *
+ * Returning `null` for a *non-empty* custom cron was the source of issue #374:
+ * the builder treated "unrecognized" the same as "empty" and silently fell
+ * back to the Daily preset, clobbering every-N-minutes schedules on reopen.
+ */
 export function cronToPreset(cron: string): SchedulePreset | null {
   const trimmed = cron.trim()
+  if (!trimmed) return null
   if (trimmed === "*/30 * * * *") return "every_30min"
   if (trimmed === "0 * * * *") return "hourly"
   if (/^\d+ \d+ \* \* \*$/.test(trimmed)) return "daily"
   if (/^\d+ \d+ \* \* 1-5$/.test(trimmed)) return "weekdays"
   if (/^\d+ \d+ \* \* [0-6]$/.test(trimmed)) return "weekly"
   if (/^\d+ \d+ \d+ \* \*$/.test(trimmed)) return "monthly"
-  return null
+  return "custom"
 }
 
 /** Extract time/day options from a cron expression (best-effort) */
@@ -119,4 +131,54 @@ export function cronToOptions(cron: string): Partial<ScheduleOptions> {
   }
 
   return result
+}
+
+/**
+ * Human-readable summary of any cron expression, written for non-technical
+ * users. Recognizes the presets and the common interval patterns (every N
+ * minutes / hours) so a `*​/5 * * * *` reads as "Runs every 5 minutes" instead
+ * of raw cron, and otherwise falls back to a generic label.
+ */
+export function cronSummary(cron: string): string {
+  const trimmed = cron.trim()
+  if (!trimmed) return "No schedule set"
+
+  const preset = cronToPreset(trimmed)
+  if (preset && preset !== "custom") {
+    const o = cronToOptions(trimmed)
+    return presetSummary(preset, {
+      time: o.time ?? "09:00",
+      dayOfWeek: o.dayOfWeek ?? 1,
+      dayOfMonth: o.dayOfMonth ?? 1,
+    })
+  }
+
+  const parts = trimmed.split(/\s+/)
+  if (parts.length === 5) {
+    const [min, hour, dom, month, dow] = parts
+    const everyDay = dom === "*" && month === "*" && dow === "*"
+    if (everyDay) {
+      // Every N minutes: "*/N * * * *" (and "* * * * *" = every minute).
+      const minStep = min.match(/^\*\/(\d+)$/)
+      if (hour === "*" && (min === "*" || minStep)) {
+        const n = minStep ? Number(minStep[1]) : 1
+        return n === 1 ? "Runs every minute" : `Runs every ${n} minutes`
+      }
+      // Every N hours on the hour: "M */N * * *".
+      const hourStep = hour.match(/^\*\/(\d+)$/)
+      if (/^\d+$/.test(min) && hourStep) {
+        const n = Number(hourStep[1])
+        return n === 1 ? "Runs every hour" : `Runs every ${n} hours`
+      }
+    }
+    // Every N days at a fixed time: "M H */N * *".
+    const domStep = dom.match(/^\*\/(\d+)$/)
+    if (month === "*" && dow === "*" && /^\d+$/.test(min) && /^\d+$/.test(hour) && domStep) {
+      const n = Number(domStep[1])
+      const t = formatTime(`${hour}:${min}`)
+      return n === 1 ? `Runs every day at ${t}` : `Runs every ${n} days at ${t}`
+    }
+  }
+
+  return "Custom schedule"
 }

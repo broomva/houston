@@ -295,29 +295,88 @@ fn push_catalog_item(
     });
 }
 
-/// Create `.claude/skills/{name}` → `../../.agents/skills/{name}` symlink
-/// so Claude Code discovers skills natively. Idempotent.
+/// Create `.claude/skills/{name}` so Claude Code discovers the skill natively.
+///
+/// On Unix this is a relative symlink to `../../.agents/skills/{name}`. On
+/// Windows, symlink creation needs Developer Mode or admin (os error 1314), so
+/// we try a directory symlink and, failing that, copy the skill directory —
+/// the same "symlink, else copy" fallback the engine uses for agent role
+/// files. The copy is kept current by [`refresh_claude_mirror`] on edit.
+/// Idempotent: skips when the node already exists.
 fn ensure_claude_symlink(workspace_path: &str, skill_name: &str) {
     let root = expand_tilde(&PathBuf::from(workspace_path));
     let claude_skills = root.join(".claude/skills");
-    let _ = std::fs::create_dir_all(&claude_skills);
+    if let Err(e) = std::fs::create_dir_all(&claude_skills) {
+        tracing::warn!("[skills] could not create .claude/skills dir: {e}");
+        return;
+    }
     let link = claude_skills.join(skill_name);
-    if !link.exists() {
+    if link.exists() {
+        return;
+    }
+    #[cfg(unix)]
+    {
         let target = Path::new("../../.agents/skills").join(skill_name);
-        #[cfg(unix)]
-        let _ = std::os::unix::fs::symlink(&target, &link);
-        #[cfg(not(unix))]
-        let _ = target;
+        if let Err(e) = std::os::unix::fs::symlink(&target, &link) {
+            tracing::warn!("[skills] could not symlink {skill_name} into .claude: {e}");
+        }
+    }
+    #[cfg(windows)]
+    {
+        let target = Path::new("..\\..\\.agents\\skills").join(skill_name);
+        if std::os::windows::fs::symlink_dir(&target, &link).is_err() {
+            // No symlink privilege: copy so Claude Code still finds the skill.
+            let source = skills_dir(workspace_path).join(skill_name);
+            if let Err(e) = crate::store::copy_dir_all(&source, &link) {
+                tracing::warn!("[skills] could not mirror {skill_name} into .claude: {e}");
+            }
+        }
     }
 }
 
+/// Remove the `.claude/skills/{name}` discovery node, whether it is a symlink
+/// (Unix, or Windows with Developer Mode) or a copied directory (the Windows
+/// fallback). Routes by node type because a Windows directory symlink must be
+/// removed with `remove_dir`, not `remove_file`.
 fn remove_claude_symlink(workspace_path: &str, skill_name: &str) {
     let root = expand_tilde(&PathBuf::from(workspace_path));
     let link = root.join(".claude/skills").join(skill_name);
-    if link.symlink_metadata().is_ok() {
-        let _ = std::fs::remove_file(&link);
+    let Ok(meta) = link.symlink_metadata() else {
+        return;
+    };
+    let ft = meta.file_type();
+    let res = if ft.is_symlink() {
+        remove_symlink_node(&link)
+    } else if ft.is_dir() {
+        std::fs::remove_dir_all(&link)
+    } else {
+        std::fs::remove_file(&link)
+    };
+    if let Err(e) = res {
+        tracing::warn!("[skills] could not remove {skill_name} from .claude: {e}");
     }
 }
+
+/// Remove a symlink node. Windows directory symlinks need `remove_dir`;
+/// everywhere else `remove_file` handles both file and directory symlinks.
+fn remove_symlink_node(link: &Path) -> std::io::Result<()> {
+    #[cfg(windows)]
+    let r = std::fs::remove_dir(link);
+    #[cfg(not(windows))]
+    let r = std::fs::remove_file(link);
+    r
+}
+
+/// Keep the Claude Code discovery mirror current after a skill's content
+/// changes. On Unix the mirror is a live symlink, so there is nothing to do; on
+/// Windows it may be a copy, so rebuild it.
+#[cfg(windows)]
+fn refresh_claude_mirror(workspace_path: &str, skill_name: &str) {
+    remove_claude_symlink(workspace_path, skill_name);
+    ensure_claude_symlink(workspace_path, skill_name);
+}
+#[cfg(not(windows))]
+fn refresh_claude_mirror(_workspace_path: &str, _skill_name: &str) {}
 
 fn emit_skills_changed(events: &DynEventSink, workspace_path: &str) {
     events.emit(HoustonEvent::SkillsChanged {
@@ -470,6 +529,7 @@ pub fn delete(events: &DynEventSink, workspace_path: &str, name: &str) -> CoreRe
 pub fn save(events: &DynEventSink, name: &str, req: SaveSkillRequest) -> CoreResult<()> {
     let dir = skills_dir(&req.workspace_path);
     houston_skills::edit_skill(&dir, name, &req.content)?;
+    refresh_claude_mirror(&req.workspace_path, name);
     emit_skills_changed(events, &req.workspace_path);
     Ok(())
 }

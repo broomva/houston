@@ -1,4 +1,11 @@
-export { useActivity, useCreateActivity, useUpdateActivity, useDeleteActivity } from "./use-activity";
+export {
+  useActivity,
+  useCreateActivity,
+  useUpdateActivity,
+  useDeleteActivity,
+  useBulkUpdateActivity,
+  useBulkDeleteActivity,
+} from "./use-activity";
 export {
   useSkills,
   useSkillCatalog,

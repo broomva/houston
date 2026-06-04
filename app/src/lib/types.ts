@@ -11,24 +11,11 @@ export interface Workspace {
   name: string;
   isDefault: boolean;
   createdAt: string;
-}
-
-/** Tab definition in an agent config */
-export interface AgentTab {
-  /** Tab identifier. Built-in: "chat", "board", "files", "job-description", "integrations", "connections", "routines", "events". Custom: any string. */
-  id: string;
-  /** Display label in the tab bar */
-  label: string;
-  /** If this maps to a built-in tab component. Must be one of the built-in IDs. */
-  builtIn?: string;
-  /** Export name from bundle.js for custom React components */
-  customComponent?: string;
-  /** Badge source: "activity" shows count of active items */
-  badge?: "activity" | "none";
-  /** If true, the tab is non-clickable (shown muted in the tab bar). */
-  disabled?: boolean;
-  /** Optional text chip shown next to the label (e.g. "Soon"). */
-  chip?: string;
+  /**
+   * Optional per-workspace UI-locale override (BCP-47 base tag: `en`/`es`/`pt`).
+   * Absent/null means the workspace inherits the global `locale` preference.
+   */
+  locale?: string | null;
 }
 
 /** Agent category for Houston Store filtering */
@@ -60,8 +47,6 @@ export interface AgentConfig {
   author?: string;         // e.g. "Houston" for official, user name for community
   tags?: string[];         // Searchable tags
   integrations?: string[]; // Composio toolkit slugs used by bundled agents
-  tabs: AgentTab[];
-  defaultTab?: string;     // Tab ID to show by default, defaults to first tab
   claudeMd?: string;       // CLAUDE.md content template
   systemPrompt?: string;   // System prompt for the assistant
   agentSeeds?: Record<string, string>;  // Files to seed in new agents
@@ -74,7 +59,6 @@ export interface AgentDefinition {
   config: AgentConfig;
   source: "builtin" | "installed";
   path?: string;           // For installed: ~/.houston/agents/{id}/
-  bundleUrl?: string;      // For custom React: URL to bundle.js
 }
 
 /** An agent instance (formerly "Workspace") */
@@ -92,14 +76,6 @@ export interface Agent {
 export interface TabProps {
   agent: Agent;
   agentDef: AgentDefinition;
-}
-
-/** Props injected into custom (bundle.js) tab components */
-export interface CustomTabProps extends TabProps {
-  readFile: (name: string) => Promise<string>;
-  writeFile: (name: string, content: string) => Promise<void>;
-  listFiles: () => Promise<Array<{ path: string; name: string; size: number }>>;
-  sendMessage: (text: string) => void;
 }
 
 /** Skill summary returned by list_skills */

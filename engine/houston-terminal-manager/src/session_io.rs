@@ -26,6 +26,22 @@ pub struct StdoutReadReport {
     /// card, so `handle_failed_exit` must NOT also emit the generic
     /// `ProviderProcess` card on top of it.
     pub saw_model_unsupported_error: bool,
+    /// True when claude's very first stdout line is a `result` event with
+    /// `subtype:"error_during_execution"` and `duration_ms == 0`. That
+    /// combination is the runtime signature of a corrupted resume — the
+    /// CLI tries to replay the on-disk transcript at
+    /// `~/.claude/projects/<encoded-cwd>/<session-id>.jsonl`, finds an
+    /// unrecoverable shape (dangling tool_use without tool_result,
+    /// truncated trailing line, etc.) and bombs out before issuing any
+    /// API call. The runner uses this flag to silently retry the spawn
+    /// without `--resume` rather than surfacing a useless "claude hit a
+    /// runtime error" status to the user. See the production logs for
+    /// 2026-05-22 (Luisa Postres / Chef - Checho) where 11 successive
+    /// turns hit this state for the same session_key with rotating
+    /// resume_ids — each retry from the UI re-pinned the same broken
+    /// transcript, and the user perceived it as the conversation being
+    /// frozen and her history vanishing.
+    pub saw_resume_corrupted: bool,
 }
 
 /// Read all stderr lines, emitting only user-actionable feed items.
@@ -130,6 +146,28 @@ async fn read_claude_stdout(
             tracing::warn!("[houston:stdout:claude] suppressed malformed provider JSON error");
             continue;
         }
+        // First-line `result` with `subtype:"error_during_execution"` +
+        // `duration_ms == 0` is the corrupted-resume signature. Replace
+        // the useless "Unknown error" parse result with a typed
+        // `SessionResumeMissing` card so the user sees a clear "we had
+        // to restart this session" message in the feed — then mark the
+        // report so the runner can silently retry without `--resume`.
+        // The card stays in the feed as historical context for why the
+        // assistant's next response will not remember prior turns.
+        if line_count == 1 && detect_claude_resume_corrupted(&line) {
+            report.saw_resume_corrupted = true;
+            tracing::warn!(
+                "[houston:stdout:claude] corrupted-resume signature (line 1) — emitting SessionResumeMissing card + flagging for retry-fresh"
+            );
+            let session_id = parser::extract_session_id(&line).unwrap_or_default();
+            let _ = tx.send(SessionUpdate::Feed(FeedItem::ProviderError(
+                ProviderError::SessionResumeMissing {
+                    provider: "anthropic".to_string(),
+                    session_id,
+                },
+            )));
+            continue;
+        }
         let items = parser::parse_event(&line, &mut acc);
         mark_auth_error(&items, &mut report);
         item_count += log_and_send(&tx, items);
@@ -138,6 +176,33 @@ async fn read_claude_stdout(
         "[houston:stdout:claude] stream ended. {line_count} lines, {item_count} feed items"
     );
     report
+}
+
+/// Detect the on-the-wire shape of a claude `--resume` failure: the very
+/// first stdout line is `{"type":"result","subtype":"error_during_execution","duration_ms":0,...}`.
+///
+/// `duration_ms == 0` plus `error_during_execution` on the first event
+/// means the CLI failed before issuing any API call — in practice, the
+/// `~/.claude/projects/<encoded-cwd>/<session-id>.jsonl` transcript the
+/// `--resume <id>` flag points to is unrecoverable (dangling tool_use,
+/// truncated trailing line). Any non-zero duration would mean the API
+/// was actually contacted, and any non-`result` first line (`system
+/// init`, `assistant`, `stream_event`, etc.) means claude was already in
+/// flight and the failure is mid-stream — neither case is a resume bug,
+/// so we deliberately keep the matcher narrow.
+fn detect_claude_resume_corrupted(line: &str) -> bool {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(line.trim()) else {
+        return false;
+    };
+    let obj = match value.as_object() {
+        Some(o) => o,
+        None => return false,
+    };
+    let is_result = obj.get("type").and_then(|v| v.as_str()) == Some("result");
+    let is_corrupt_subtype =
+        obj.get("subtype").and_then(|v| v.as_str()) == Some("error_during_execution");
+    let zero_duration = obj.get("duration_ms").and_then(|v| v.as_u64()) == Some(0);
+    is_result && is_corrupt_subtype && zero_duration
 }
 
 async fn read_codex_stdout(
@@ -150,19 +215,51 @@ async fn read_codex_stdout(
     let mut line_count = 0u64;
     let mut item_count = 0u64;
     let mut report = StdoutReadReport::default();
+    // Codex thread id (from `thread.started`) — used to locate the rollout for
+    // accurate context usage once the stream ends.
+    let mut thread_id: Option<String> = None;
+    // The terminal FinalResult is held back until the stream ends: its accurate
+    // context usage lives in the rollout, which codex only fully flushes when
+    // it exits (stdout EOF → this loop breaks). codex exec emits exactly one
+    // turn.completed, so keeping the last one is sufficient.
+    let mut final_result: Option<FeedItem> = None;
     while let Ok(Some(line)) = lines.next_line().await {
         line_count += 1;
         let line_type = line.trim().chars().take(80).collect::<String>();
         tracing::debug!("[houston:stdout:codex] line {line_count}: {line_type}");
 
         if let Some(tid) = codex_parser::extract_thread_id(&line) {
+            thread_id = Some(tid.clone());
             let _ = tx.send(SessionUpdate::SessionId(tid));
         }
-        let items = codex_parser::parse_codex_event(&line, &mut acc);
+        let mut items = codex_parser::parse_codex_event(&line, &mut acc);
         mark_auth_error(&items, &mut report);
         mark_model_unsupported(&items, &mut report);
+        if let Some(pos) = items
+            .iter()
+            .position(|item| matches!(item, FeedItem::FinalResult { .. }))
+        {
+            final_result = Some(items.remove(pos));
+        }
         item_count += log_and_send(&tx, items);
     }
+
+    // Stream ended → codex has exited and flushed its rollout. Patch the held
+    // FinalResult with the accurate last-request usage, then emit it. On any
+    // failure the usage stays None (indicator shows no %, never a wrong summed
+    // number). See `codex_rollout` for why the exec stream alone can't give us
+    // this.
+    if let Some(mut fr) = final_result {
+        if let FeedItem::FinalResult { usage, .. } = &mut fr {
+            if let Some(tid) = thread_id.as_deref() {
+                if let Some(accurate) = crate::codex_rollout::latest_usage(tid).await {
+                    *usage = Some(accurate);
+                }
+            }
+        }
+        item_count += log_and_send(&tx, vec![fr]);
+    }
+
     tracing::debug!(
         "[houston:stdout:codex] stream ended. {line_count} lines, {item_count} feed items"
     );
@@ -303,5 +400,73 @@ mod tests {
             report.saw_auth_error,
             "claude 401 result event should set saw_auth_error"
         );
+    }
+
+    #[test]
+    fn detect_resume_corrupted_matches_production_signature() {
+        // Verbatim shape from backend.log.2026-05-22 line 856 (Luisa
+        // Postres / Chef - Checho activity-409b0b45). The session was
+        // pinned to a broken transcript; claude exited at duration_ms=0
+        // after 11 successive turns.
+        let line = r#"{"type":"result","subtype":"error_during_execution","duration_ms":0,"duration_api_ms":0,"is_error":true,"num_turns":0,"session_id":"5f394669-2db7-4be2-b939-ce92176f6002"}"#;
+        assert!(detect_claude_resume_corrupted(line));
+    }
+
+    #[test]
+    fn detect_resume_corrupted_rejects_post_api_error() {
+        // Same subtype but the API was actually contacted (non-zero
+        // duration_ms). That's a legitimate mid-flight failure, not a
+        // resume bug — must NOT auto-retry, or we'd hide real issues.
+        let line = r#"{"type":"result","subtype":"error_during_execution","duration_ms":4200,"is_error":true}"#;
+        assert!(!detect_claude_resume_corrupted(line));
+    }
+
+    #[test]
+    fn detect_resume_corrupted_rejects_other_subtypes() {
+        // A zero-duration `result` with a different subtype (e.g.
+        // `success`, `error_max_turns`, plain `error`) does not match
+        // the corrupted-resume signature.
+        let cases = [
+            r#"{"type":"result","subtype":"success","duration_ms":0,"is_error":false}"#,
+            r#"{"type":"result","subtype":"error","duration_ms":0,"is_error":true}"#,
+            r#"{"type":"result","subtype":"error_max_turns","duration_ms":0,"is_error":true}"#,
+        ];
+        for line in cases {
+            assert!(
+                !detect_claude_resume_corrupted(line),
+                "expected no match for: {line}"
+            );
+        }
+    }
+
+    #[test]
+    fn detect_resume_corrupted_rejects_non_result_events() {
+        // `system init`, `assistant`, `stream_event` all happen BEFORE a
+        // legitimate result event. Matching them would be a category
+        // error — they aren't end-of-stream signals.
+        let cases = [
+            r#"{"type":"system","subtype":"init","session_id":"abc","cwd":"/tmp"}"#,
+            r#"{"type":"assistant","message":{"id":"m1","content":[]}}"#,
+            r#"{"type":"stream_event","event":{"type":"message_start"}}"#,
+        ];
+        for line in cases {
+            assert!(
+                !detect_claude_resume_corrupted(line),
+                "expected no match for: {line}"
+            );
+        }
+    }
+
+    #[test]
+    fn detect_resume_corrupted_rejects_invalid_json() {
+        // Truncated / partial lines must not match — claude's first
+        // stdout event is always a complete NDJSON object, so a bad
+        // parse means the line is corrupted on our end, not a resume
+        // signature.
+        assert!(!detect_claude_resume_corrupted(""));
+        assert!(!detect_claude_resume_corrupted("not json"));
+        assert!(!detect_claude_resume_corrupted(
+            r#"{"type":"result","subtype":"error_during_execution","duration_ms":"#
+        ));
     }
 }

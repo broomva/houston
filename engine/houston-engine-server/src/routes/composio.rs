@@ -26,11 +26,14 @@ pub fn router() -> Router<Arc<ServerState>> {
         .route("/composio/cli", post(install_cli))
         .route("/composio/login", post(start_login))
         .route("/composio/login/complete", post(complete_login))
+        .route("/composio/logout", post(logout))
         .route("/composio/apps", get(list_apps))
         .route(
             "/composio/connections",
             get(list_connections).post(connect_app),
         )
+        .route("/composio/connections/disconnect", post(disconnect_app))
+        .route("/composio/connections/reconnect", post(reconnect_app))
         .route("/composio/connections/watch", post(watch_connection))
 }
 
@@ -48,6 +51,17 @@ struct CompleteLogin {
 #[derive(Deserialize)]
 struct ConnectApp {
     toolkit: String,
+}
+
+#[derive(Deserialize)]
+struct ToolkitRef {
+    toolkit: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReconnectResponse {
+    redirect_url: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -88,6 +102,10 @@ async fn complete_login(
         .map_err(lift)
 }
 
+async fn logout(State(_st): State<Arc<ServerState>>) -> Result<(), ApiError> {
+    inner::logout_composio().await.map_err(lift)
+}
+
 async fn list_apps(State(_st): State<Arc<ServerState>>) -> Json<Vec<ComposioAppEntry>> {
     Json(inner::list_composio_apps().await)
 }
@@ -103,6 +121,28 @@ async fn connect_app(
     inner::connect_composio_app(req.toolkit)
         .await
         .map(Json)
+        .map_err(lift)
+}
+
+/// Disconnect every connected account for a toolkit in the consumer
+/// namespace. Returns 200 on success; errors surface as `ApiError`.
+async fn disconnect_app(
+    State(_st): State<Arc<ServerState>>,
+    Json(req): Json<ToolkitRef>,
+) -> Result<(), ApiError> {
+    inner::disconnect_composio_app(req.toolkit).await.map_err(lift)
+}
+
+/// Reconnect (refresh auth on) a toolkit. Returns `{ redirectUrl }` — a
+/// browser URL to complete OAuth re-consent, or `null` when the auth
+/// scheme refreshed silently.
+async fn reconnect_app(
+    State(_st): State<Arc<ServerState>>,
+    Json(req): Json<ToolkitRef>,
+) -> Result<Json<ReconnectResponse>, ApiError> {
+    inner::reconnect_composio_app(req.toolkit)
+        .await
+        .map(|redirect_url| Json(ReconnectResponse { redirect_url }))
         .map_err(lift)
 }
 
