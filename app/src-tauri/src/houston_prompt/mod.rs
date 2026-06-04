@@ -6,22 +6,25 @@
 //! Houston desktop agent behaves and speaks.
 
 mod base;
+mod cross_review;
 mod integrations;
 mod onboarding;
 mod routines;
 mod skills_memory;
 
 pub use base::HOUSTON_SYSTEM_PROMPT;
+pub use cross_review::CROSS_REVIEW_GUIDANCE;
 pub use integrations::COMPOSIO_GUIDANCE;
 pub use onboarding::ONBOARDING_GUIDANCE;
 pub use routines::ROUTINES_GUIDANCE;
 pub use skills_memory::SELF_IMPROVEMENT_GUIDANCE;
 
 /// Build the composite system prompt the engine uses as its fallback.
-/// Order: base identity, skills/memory guidance, routines guidance, Composio guidance.
+/// Order: base identity, skills/memory guidance, routines guidance, Composio
+/// guidance, then second-opinion (cross-review) guidance.
 pub fn system_prompt() -> String {
     format!(
-        "{HOUSTON_SYSTEM_PROMPT}\n\n---\n\n{SELF_IMPROVEMENT_GUIDANCE}\n\n---\n\n{ROUTINES_GUIDANCE}{COMPOSIO_GUIDANCE}"
+        "{HOUSTON_SYSTEM_PROMPT}\n\n---\n\n{SELF_IMPROVEMENT_GUIDANCE}\n\n---\n\n{ROUTINES_GUIDANCE}{COMPOSIO_GUIDANCE}\n\n---\n\n{CROSS_REVIEW_GUIDANCE}"
     )
 }
 
@@ -76,6 +79,20 @@ mod tests {
         assert!(prompt.contains("## Procedure"));
         assert!(!prompt.contains("core-workflow.md"));
         assert!(!prompt.contains("skill.sh"));
+    }
+
+    #[test]
+    fn system_prompt_includes_cross_review_guidance() {
+        let prompt = system_prompt();
+
+        assert!(prompt.contains("## How-To Guidance: Second Opinions"));
+        assert!(prompt.contains("get a second opinion"));
+        // Stays in product voice — no engineering jargon or internal tool/
+        // method names leak into the agent's doctrine (voice rule + the
+        // doctrine must read the same for every provider).
+        assert!(!prompt.contains("P20"));
+        assert!(!prompt.to_lowercase().contains("cross-model"));
+        assert!(!prompt.contains("request_review"));
     }
 
     #[test]

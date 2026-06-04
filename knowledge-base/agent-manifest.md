@@ -220,16 +220,22 @@ adapter, see `knowledge-base/architecture.md`).
 | Provider id | CLI | Default model | Premium model | Login flow |
 |---|---|---|---|---|
 | `anthropic` (alias `claude`) | `claude` (runtime download) | `claude-sonnet-4-6` | `claude-opus-4-8` | OAuth via `claude auth login --claudeai` |
-| `openai` (alias `codex`) | `codex` (bundled) | `gpt-5` | `gpt-5-codex` | OAuth via `codex login` |
-| `gemini` (alias `google`) | `gemini` (bundled, macOS only) | `gemini-2.5-flash` | `gemini-2.5-pro` | API key, no CLI login (see `knowledge-base/auth.md`) |
+| `openai` (alias `codex`) | `codex` (bundled) | `gpt-5.5` | `—` (single SKU; `gpt-5.5-mini` is the engine's cheap one-shot tier) | OAuth via `codex login` |
+| `gemini` (alias `google`) | `gemini` (bundled, macOS only) | `gemini-3.1-flash-lite` | `gemini-3.1-pro-preview` (gated, paid tiers) | API key, no CLI login (see `knowledge-base/auth.md`) |
 
 Notes:
 - Gemini has no `gemini login`. The picker short-circuits on
   `loginKind === "apiKey"` and opens the Connect-API-Key dialog
   (`app/src/components/shell/api-key-connect-dialog.tsx`). Calling
   `/v1/providers/gemini/login` directly returns `BadRequest`.
-- Gemini is macOS-only in v1; Windows users see it as unavailable until
+- Gemini is currently surfaced under "coming soon" in the picker
+  (`COMING_SOON_PROVIDERS` in `app/src/lib/providers.ts`) — engine support +
+  bundled CLI are intact, the UI just keeps it gated pending the broader
+  rollout. It's macOS-only in v1; Windows users see it as unavailable until
   the phase-2 fork-build lands (see `knowledge-base/cli-bundling.md`).
+- Model IDs above mirror `app/src/lib/providers.ts` (catalog) and the engine
+  one-shot consts (`sessions/generate_instructions.rs`, `sessions/cross_review.rs`).
+  Keep them in sync when models change.
 - Adding a fourth provider = one new adapter file + one registry entry +
   three dispatch arms (runner, parser, summarizer). See "Engine boundary"
   in `CLAUDE.md`.
