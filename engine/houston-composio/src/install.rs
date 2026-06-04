@@ -207,12 +207,20 @@ pub async fn install() -> Result<PathBuf, String> {
     Ok(resolved)
 }
 
-/// Cross-platform home directory. macOS/Linux set `HOME`; Windows sets
-/// `USERPROFILE`. The `dirs` crate papers over both. Public so the
-/// rest of `houston-composio` doesn't read `$HOME` directly — that env
-/// var is unset on Windows and produces "HOME not set" failures when
-/// reading `~/.composio/user_data.json` (see apps.rs).
+/// Cross-platform home directory, used to locate `~/.composio`. Public so the
+/// rest of `houston-composio` never reads `$HOME` directly (that var is unset
+/// on Windows and produces "HOME not set" failures, e.g. in apps.rs).
+///
+/// On Windows we check `USERPROFILE` first: `dirs 5` resolves the home there
+/// via the known-folder API and ignores the env var, so honoring it explicitly
+/// gives callers and tests a seam to redirect resolution. It equals the
+/// known-folder profile in normal use, so production behavior is unchanged.
+/// Unix `dirs::home_dir()` already honors `$HOME`.
 pub fn home_dir() -> PathBuf {
+    #[cfg(windows)]
+    if let Some(p) = std::env::var_os("USERPROFILE").filter(|v| !v.is_empty()) {
+        return PathBuf::from(p);
+    }
     dirs::home_dir().unwrap_or_default()
 }
 

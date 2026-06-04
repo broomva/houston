@@ -8,6 +8,7 @@ import {
   Bot,
   Bug,
   FileText,
+  Keyboard,
   UserCircle,
   SlidersHorizontal,
   Link2,
@@ -28,6 +29,7 @@ type SettingsSectionId =
   | "tracker"
   | "advanced"
   | "phone"
+  | "shortcuts"
   | "reportBug";
 import { AccountSection, useAccountAvailable } from "./sections/account";
 import { ConnectPhoneSection } from "./sections/connect-phone";
@@ -44,6 +46,7 @@ import { AppearanceSection } from "./sections/appearance";
 import { AdvancedSection } from "./sections/advanced";
 import { DangerSection } from "./sections/danger";
 import { ReportBugSection } from "./sections/report-bug";
+import { ShortcutsSection } from "./sections/shortcuts";
 
 export function SettingsView() {
   const { t } = useTranslation(["settings", "common"]);
@@ -95,6 +98,7 @@ export function SettingsView() {
         beta: true,
       },
       { id: "phone", label: t("settings:nav.phone"), icon: Smartphone, beta: true },
+      { id: "shortcuts", label: t("settings:nav.shortcuts"), icon: Keyboard },
       { id: "reportBug", label: t("settings:nav.reportBug"), icon: Bug },
     );
     return list;
@@ -153,6 +157,7 @@ export function SettingsView() {
             {activeVisible === "tracker" && <TrackerSection />}
             {activeVisible === "advanced" && <AdvancedSection />}
             {activeVisible === "phone" && <ConnectPhoneSection />}
+            {activeVisible === "shortcuts" && <ShortcutsSection />}
             {activeVisible === "reportBug" && <ReportBugSection />}
           </div>
         )}

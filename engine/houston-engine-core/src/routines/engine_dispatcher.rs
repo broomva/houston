@@ -38,15 +38,19 @@ pub struct EngineRoutineDispatcher {
 #[async_trait]
 impl RoutineDispatcher for EngineRoutineDispatcher {
     async fn dispatch(&self, ctx: DispatchContext<'_>) -> DispatchOutcome {
-        let _workdir_guard = match self.rt.try_acquire_workdir(ctx.working_dir).await {
-            Ok(guard) => guard,
-            Err(e) => {
-                return DispatchOutcome {
-                    response_text: String::new(),
-                    error: Some(e.to_string()),
-                };
-            }
-        };
+        // Serialize sessions that share a working directory: wait for any
+        // earlier routine run in this folder to finish before starting ours.
+        // Two routines scheduled for the same time both run, one after the
+        // other (issue #362), instead of the second failing on a busy folder.
+        let _workdir_guard = self.rt.acquire_workdir(ctx.working_dir).await;
+
+        // We may have waited on the lock. If the user cancelled this run while
+        // it sat queued, the row is already terminal — skip spawning a session
+        // (and burning provider tokens) for work that's been called off.
+        // `finish_run` sees the `cancelled` status and discards this outcome.
+        if cancelled_while_queued(ctx.working_dir, &ctx.run.id) {
+            return DispatchOutcome::default();
+        }
 
         if let Err(e) = agent_prompt::seed_agent(ctx.working_dir) {
             return DispatchOutcome {
@@ -78,7 +82,13 @@ impl RoutineDispatcher for EngineRoutineDispatcher {
                 resolved.provider,
             )
             .await;
-        let resume_id = sid_handle.get().await;
+        // One chat per routine (#381): all runs share a stable session_key, so
+        // resuming here would carry the PREVIOUS run's full context into this
+        // one — unbounded growth and drift that would change what a routine
+        // does. Force a fresh session every run. The handle is still passed
+        // below so the new provider session id is appended to the shared key's
+        // `.history`, and THAT is what merges every run into the single chat.
+        let resume_id: Option<String> = None;
 
         let join_handle = session_runner::spawn_and_monitor(
             self.events.clone(),
@@ -86,13 +96,20 @@ impl RoutineDispatcher for EngineRoutineDispatcher {
             ctx.run.session_key.clone(),
             ctx.prompt.to_string(),
             resume_id,
+            None,
             ctx.working_dir.to_path_buf(),
             Some(system_prompt),
             Some(sid_handle),
             Some(PersistOptions {
                 db: self.db.clone(),
                 source: "routine".into(),
-                user_message: Some(ctx.prompt.to_string()),
+                // Persist + echo the routine's own prompt as the per-run user
+                // message, NOT `ctx.prompt` — the latter has the internal
+                // "end with ROUTINE_OK" suppression instruction appended, which
+                // is scaffolding the user should never see (#381). The model
+                // still receives the full `ctx.prompt` above; only the
+                // displayed/saved message is the clean one.
+                user_message: Some(ctx.routine.prompt.clone()),
                 claude_session_id: None,
                 lifecycle: Some(Arc::new(RoutineRunLifecycle {
                     root: ctx.working_dir.to_path_buf(),
@@ -104,7 +121,7 @@ impl RoutineDispatcher for EngineRoutineDispatcher {
             Some(self.rt.pid_map.clone()),
             resolved.provider,
             resolved.model,
-            None,
+            sessions::resolve_effort(ctx.working_dir, resolved.provider),
             // Routines don't open an MCP-ask-user round-trip (no human is
             // sitting in front of the screen waiting to answer). Always None.
             None,
@@ -119,6 +136,27 @@ impl RoutineDispatcher for EngineRoutineDispatcher {
                 response_text: String::new(),
                 error: Some(format!("session task failed: {e}")),
             },
+        }
+    }
+}
+
+/// After acquiring the workdir lock, a run that sat queued behind another
+/// routine may have been cancelled. Returns `true` if the on-disk row is
+/// already terminal (`cancelled`) and the dispatcher should skip spawning a
+/// session for it.
+///
+/// A failed re-read is treated as "not cancelled" (proceed): `finish_run`
+/// still drives the run to a terminal status from the dispatch outcome, so
+/// proceeding can't strand the row, whereas wrongly skipping on a transient
+/// read error would.
+fn cancelled_while_queued(working_dir: &Path, run_id: &str) -> bool {
+    match routine_runs::find_by_id(working_dir, run_id) {
+        Ok(run) => run.status == "cancelled",
+        Err(e) => {
+            tracing::warn!(
+                "[routines] failed to re-read run {run_id} after acquiring workdir lock: {e}"
+            );
+            false
         }
     }
 }
@@ -235,6 +273,32 @@ mod lifecycle_tests {
         let after = routine_runs::find_by_id(d.path(), &run.id).unwrap();
         assert_eq!(after.paused_until.as_deref(), Some("soon"));
     }
+
+    #[test]
+    fn cancelled_while_queued_detects_terminal_cancel_and_tolerates_missing() {
+        let d = TempDir::new().unwrap();
+        let r = create(d.path(), mk_routine()).unwrap();
+        let run = routine_runs::create(d.path(), &r.id).unwrap();
+
+        // Freshly created run is still `running` → not cancelled → proceed.
+        assert!(!cancelled_while_queued(d.path(), &run.id));
+
+        // Cancelled while queued → skip dispatch.
+        routine_runs::update(
+            d.path(),
+            &run.id,
+            RoutineRunUpdate {
+                status: Some("cancelled".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(cancelled_while_queued(d.path(), &run.id));
+
+        // Unreadable / missing row → treat as live (proceed); finish_run still
+        // drives a terminal status, so this must never strand the run.
+        assert!(!cancelled_while_queued(d.path(), "nonexistent-run-id"));
+    }
 }
 
 /// Routine activity surface backed by the on-disk `AgentStore`.
@@ -251,21 +315,42 @@ impl ActivitySurface for EngineActivitySurface {
         routine_run_id: &str,
     ) -> Result<String, String> {
         ensure_houston_dir(working_dir).map_err(|e| e.to_string())?;
-        let activity = agents::activity::create(
-            working_dir,
-            NewActivity {
-                title: title.to_string(),
-                description: description.to_string(),
-                agent: None,
-                worktree_path: None,
-                provider: None,
-                model: None,
-            },
-        )
-        .map_err(|e| e.to_string())?;
+
+        // One chat per routine (#381): reuse the activity already bound to this
+        // routine's stable session_key instead of spawning a fresh chat for
+        // every surfaced run. The match is on the exact session_key, so older
+        // per-run routine chats (which carry the legacy `routine-{id}-run-{run}`
+        // key) are left untouched as history while new runs collapse into one.
+        let existing = agents::activity::list(working_dir)
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .find(|a| a.session_key.as_deref() == Some(session_key));
+
+        let activity_id = match existing {
+            Some(activity) => activity.id,
+            None => {
+                agents::activity::create(
+                    working_dir,
+                    NewActivity {
+                        title: title.to_string(),
+                        description: description.to_string(),
+                        agent: None,
+                        worktree_path: None,
+                        provider: None,
+                        model: None,
+                    },
+                )
+                .map_err(|e| e.to_string())?
+                .id
+            }
+        };
+
+        // Flip the chat back to "needs you" and re-link the latest run. Title +
+        // description are deliberately set only on create (above), so a user's
+        // rename of the routine chat survives later surfaces.
         agents::activity::update(
             working_dir,
-            &activity.id,
+            &activity_id,
             ActivityUpdate {
                 status: Some("needs_you".into()),
                 session_key: Some(session_key.to_string()),
@@ -275,6 +360,107 @@ impl ActivitySurface for EngineActivitySurface {
             },
         )
         .map_err(|e| e.to_string())?;
-        Ok(activity.id)
+        Ok(activity_id)
+    }
+}
+
+#[cfg(test)]
+mod surface_tests {
+    use super::*;
+    use crate::agents::activity;
+    use tempfile::TempDir;
+
+    #[test]
+    fn reuses_one_activity_per_routine_session_key() {
+        // Two surfaced runs of the same routine collapse into one chat (#381).
+        let d = TempDir::new().unwrap();
+        let surface = EngineActivitySurface;
+        let key = "routine-abc";
+
+        let id1 = surface
+            .surface(d.path(), "Morning", "desc", key, "abc", "run-1")
+            .unwrap();
+        let id2 = surface
+            .surface(d.path(), "Morning", "desc", key, "abc", "run-2")
+            .unwrap();
+
+        assert_eq!(id1, id2, "second surface reuses the same activity");
+        let acts = activity::list(d.path()).unwrap();
+        assert_eq!(acts.len(), 1, "only one activity for the routine");
+        let a = &acts[0];
+        assert_eq!(a.status, "needs_you");
+        assert_eq!(a.session_key.as_deref(), Some(key));
+        assert_eq!(a.routine_id.as_deref(), Some("abc"));
+        assert_eq!(
+            a.routine_run_id.as_deref(),
+            Some("run-2"),
+            "the reused chat links the latest run"
+        );
+    }
+
+    #[test]
+    fn distinct_routines_get_distinct_chats() {
+        let d = TempDir::new().unwrap();
+        let surface = EngineActivitySurface;
+
+        let id_a = surface
+            .surface(d.path(), "A", "", "routine-a", "a", "run-1")
+            .unwrap();
+        let id_b = surface
+            .surface(d.path(), "B", "", "routine-b", "b", "run-1")
+            .unwrap();
+
+        assert_ne!(id_a, id_b);
+        assert_eq!(activity::list(d.path()).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn reuse_preserves_a_user_renamed_chat_title() {
+        let d = TempDir::new().unwrap();
+        let surface = EngineActivitySurface;
+        let key = "routine-abc";
+
+        let id = surface
+            .surface(d.path(), "Morning", "desc", key, "abc", "run-1")
+            .unwrap();
+        activity::update(
+            d.path(),
+            &id,
+            ActivityUpdate {
+                title: Some("My renamed chat".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        surface
+            .surface(d.path(), "Morning", "desc", key, "abc", "run-2")
+            .unwrap();
+
+        let acts = activity::list(d.path()).unwrap();
+        assert_eq!(acts.len(), 1);
+        assert_eq!(
+            acts[0].title, "My renamed chat",
+            "a later surface must not clobber the user's rename"
+        );
+    }
+
+    #[test]
+    fn legacy_per_run_chats_are_left_intact() {
+        // A pre-#381 routine chat carries the old per-run key. A new surface on
+        // the stable key must create a fresh canonical chat, not adopt the old
+        // one (whose feed lives under a different key).
+        let d = TempDir::new().unwrap();
+        let surface = EngineActivitySurface;
+
+        let legacy = surface
+            .surface(d.path(), "Old", "", "routine-abc-run-xyz", "abc", "run-xyz")
+            .unwrap();
+        let canonical = surface
+            .surface(d.path(), "Morning", "", "routine-abc", "abc", "run-1")
+            .unwrap();
+
+        assert_ne!(legacy, canonical);
+        assert_eq!(activity::list(d.path()).unwrap().len(), 2);
     }
 }

@@ -12,6 +12,17 @@ import i18n from "i18next";
 import LanguageDetector from "i18next-browser-languagedetector";
 import { initReactI18next } from "react-i18next";
 
+import {
+  SUPPORTED_LOCALES,
+  LOCALE_PREF_KEY,
+  isSupported,
+  normalizeLocale,
+  resolveEffectiveLocale,
+  localeToApply,
+  activeWorkspaceLocale,
+  type SupportedLocale,
+} from "./locale";
+
 import commonEn from "../locales/en/common.json";
 import setupEn from "../locales/en/setup.json";
 import legalEn from "../locales/en/legal.json";
@@ -34,6 +45,7 @@ import portableEn from "../locales/en/portable.json";
 import tileEn from "../locales/en/tile.json";
 import timelineEn from "../locales/en/timeline.json";
 import trackerEn from "../locales/en/tracker.json";
+import contextEn from "../locales/en/context.json";
 import commonEs from "../locales/es/common.json";
 import setupEs from "../locales/es/setup.json";
 import legalEs from "../locales/es/legal.json";
@@ -56,6 +68,7 @@ import portableEs from "../locales/es/portable.json";
 import tileEs from "../locales/es/tile.json";
 import timelineEs from "../locales/es/timeline.json";
 import trackerEs from "../locales/es/tracker.json";
+import contextEs from "../locales/es/context.json";
 import commonPt from "../locales/pt/common.json";
 import setupPt from "../locales/pt/setup.json";
 import legalPt from "../locales/pt/legal.json";
@@ -78,12 +91,20 @@ import portablePt from "../locales/pt/portable.json";
 import tilePt from "../locales/pt/tile.json";
 import timelinePt from "../locales/pt/timeline.json";
 import trackerPt from "../locales/pt/tracker.json";
+import contextPt from "../locales/pt/context.json";
 
-export const SUPPORTED_LOCALES = ["en", "es", "pt"] as const;
-export type SupportedLocale = (typeof SUPPORTED_LOCALES)[number];
-
-/** Engine preference key for the user's chosen UI locale. */
-export const LOCALE_PREF_KEY = "locale";
+// Pure locale value-logic lives in ./locale (DOM/JSON-free, unit-tested).
+// Re-exported here so existing `from "../lib/i18n"` imports keep working.
+export {
+  SUPPORTED_LOCALES,
+  LOCALE_PREF_KEY,
+  isSupported,
+  normalizeLocale,
+  resolveEffectiveLocale,
+  localeToApply,
+  activeWorkspaceLocale,
+};
+export type { SupportedLocale };
 
 /**
  * Boot-time cache key in localStorage. Used ONLY to avoid flash-of-wrong-
@@ -106,20 +127,6 @@ export function setCachedLocale(locale: SupportedLocale): void {
   } catch {
     /* ignore quota / disabled storage */
   }
-}
-
-export function isSupported(value: unknown): value is SupportedLocale {
-  return (
-    typeof value === "string" &&
-    (SUPPORTED_LOCALES as readonly string[]).includes(value)
-  );
-}
-
-/** Normalize a BCP-47 tag (`pt-BR`) to a supported locale (`pt`), or null. */
-export function normalizeLocale(value: string | null | undefined): SupportedLocale | null {
-  if (!value) return null;
-  const base = value.toLowerCase().split(/[-_]/)[0];
-  return isSupported(base) ? base : null;
 }
 
 const resources = {
@@ -146,6 +153,7 @@ const resources = {
     tile: tileEn,
     timeline: timelineEn,
     tracker: trackerEn,
+    context: contextEn,
   },
   es: {
     common: commonEs,
@@ -170,6 +178,7 @@ const resources = {
     tile: tileEs,
     timeline: timelineEs,
     tracker: trackerEs,
+    context: contextEs,
   },
   pt: {
     common: commonPt,
@@ -194,6 +203,7 @@ const resources = {
     tile: tilePt,
     timeline: timelinePt,
     tracker: trackerPt,
+    context: contextPt,
   },
 } as const;
 
@@ -238,6 +248,7 @@ void i18n
       "tile",
       "timeline",
       "tracker",
+      "context",
     ],
     interpolation: { escapeValue: false }, // react already escapes
     detection: {
@@ -251,15 +262,16 @@ void i18n
   });
 
 /**
- * Apply a locale coming from the engine preference. Pass `null` if the
- * preference is unset and the detector-picked value should stand.
+ * Apply the engine-resolved locale to the live i18n instance and refresh the
+ * boot cache, making the engine the source of truth. Pass `null` if neither
+ * the workspace override nor the global preference is set — the detector pick
+ * then stands. No-ops when the target already matches the active language.
  */
 export async function applyEngineLocale(raw: string | null): Promise<void> {
-  const locale = normalizeLocale(raw);
-  if (!locale) return;
-  if (i18n.language === locale) return;
-  await i18n.changeLanguage(locale);
-  setCachedLocale(locale);
+  const target = localeToApply(raw, i18n.language);
+  if (!target) return;
+  await i18n.changeLanguage(target);
+  setCachedLocale(target);
 }
 
 /** Change the active locale AND remember it in the boot cache. */

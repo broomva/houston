@@ -65,6 +65,11 @@ export interface Workspace {
   name: string;
   isDefault: boolean;
   createdAt: string;
+  /**
+   * Optional per-workspace UI-locale override (BCP-47 base tag: `en`/`es`/`pt`).
+   * Absent/null means the workspace inherits the global `locale` preference.
+   */
+  locale?: string | null;
   provider?: string;
   model?: string;
 }
@@ -267,6 +272,9 @@ export interface ConversationEntry {
   updated_at?: string;
   agent_path: string;
   agent_name: string;
+  agent?: string;
+  routine_id?: string;
+  worktree_path?: string | null;
 }
 
 // ---------- Skills ----------
@@ -641,6 +649,13 @@ export interface SessionStartRequest {
    * blow up the session.
    */
   effort?: string;
+  /**
+   * When `true`, the engine compacts the conversation (summarize the visible
+   * history + reseed a fresh provider session) before running this turn. Set
+   * by the desktop client once the context window is nearly full. Honored only
+   * when there's an existing session to compact; ignored on the first turn.
+   */
+  compact?: boolean;
 }
 
 export interface SessionStartResponse {
@@ -859,6 +874,60 @@ export type TrackerReconcileResponse =
       reason: string;
     };
 
+// ---------- Claude Code installer ----------
+
+/**
+ * Stable failure `kind` for a Claude Code install attempt. Mirror of the
+ * Rust `ClaudeInstallError` enum in
+ * `engine/houston-ui-events/src/lib.rs` (serde `tag = "kind"`,
+ * snake_case). The engine is i18n-agnostic, so it emits the slug and the
+ * frontend localizes it. The two MUST stay in sync.
+ */
+export type ClaudeInstallErrorKind =
+  | "timeout"
+  | "network_unreachable"
+  | "download_interrupted"
+  | "http_error"
+  | "checksum_mismatch"
+  | "platform_unsupported"
+  | "write_failed"
+  | "manifest_missing"
+  | "manifest_entry_missing"
+  | "unknown";
+
+/**
+ * Typed install failure. `kind` is localized by the frontend; the
+ * optional fields carry per-kind data. `detail` is technical text for
+ * the bug report — never shown to a user verbatim.
+ */
+export interface ClaudeInstallError {
+  kind: ClaudeInstallErrorKind;
+  /** Present on `http_error`. */
+  status?: number;
+  /** Present on `platform_unsupported`. */
+  platform?: string;
+  /** Present on `checksum_mismatch` / `write_failed` / `unknown`. */
+  detail?: string;
+}
+
+/**
+ * Snapshot of the runtime Claude Code install. Returned by
+ * `GET /v1/claude/status`.
+ *
+ * `lastInstallError` is the field the onboarding "Sign in with
+ * Anthropic" card reads when `installed` is `false` — it disambiguates
+ * "Houston tried to download Claude Code and failed (likely no
+ * internet)" from "Houston hasn't tried yet". See issue #231 for the
+ * UX bug this addresses.
+ */
+export interface ClaudeStatus {
+  installed: boolean;
+  installPath: string;
+  pinnedVersion: string | null;
+  installedVersion: string | null;
+  lastInstallError: ClaudeInstallError | null;
+}
+
 // ---------- Composio ----------
 
 export type ComposioStatus =
@@ -884,6 +953,14 @@ export interface ComposioStartLinkResponse {
   redirect_url: string;
   connected_account_id: string;
   toolkit: string;
+}
+
+export interface ComposioReconnectResponse {
+  /**
+   * Browser URL the user must open to finish OAuth re-consent, or `null`
+   * when the auth scheme refreshed silently (e.g. API-key connections).
+   */
+  redirectUrl: string | null;
 }
 
 // ────────────────────────────────────────────────────────────────────────

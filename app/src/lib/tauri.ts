@@ -33,6 +33,8 @@ import type {
 import { getEngine } from "./engine";
 import { osPickDirectory } from "./os-bridge";
 import { logger } from "./logger";
+import { normalizeLegacyModel } from "./providers";
+import { shouldAutocompactForSession } from "./autocompact";
 export { withAttachmentPaths } from "./attachment-message";
 
 interface EngineCallOptions {
@@ -79,6 +81,10 @@ export const tauriWorkspaces = {
     call<void>("rename_workspace", async () => {
       await getEngine().renameWorkspace(id, { newName });
     }),
+  setLocale: (id: string, locale: string | null) =>
+    call<Workspace>("set_workspace_locale", () =>
+      getEngine().setWorkspaceLocale(id, locale),
+    ),
   getContext: (id: string) =>
     call<import("@houston-ai/engine-client").WorkspaceContext>(
       "get_workspace_context",
@@ -145,9 +151,9 @@ export const tauriAgents = {
   delete: (workspaceId: string, id: string) =>
     call<void>("delete_agent", () => getEngine().deleteAgent(workspaceId, id)),
   rename: (workspaceId: string, id: string, newName: string) =>
-    call<void>("rename_agent", async () => {
-      await getEngine().renameAgent(workspaceId, id, newName);
-    }),
+    call<Agent>("rename_agent", async () =>
+      toAgent(await getEngine().renameAgent(workspaceId, id, newName)),
+    ),
   updateColor: (workspaceId: string, id: string, color: string) =>
     call<Agent>("update_agent_color", async () =>
       toAgent(await getEngine().updateAgent(workspaceId, id, { color })),
@@ -181,6 +187,16 @@ export const tauriChat = {
     },
   ) =>
     call<string>("send_message", async () => {
+      // Centralized autocompact decision: when this session's context is
+      // nearly full, ask the engine to summarize + reseed before this turn.
+      // Computed here so every send path gets it; new conversations have no
+      // usage yet and resolve to `false`.
+      const compact = shouldAutocompactForSession(
+        agentPath,
+        sessionKey,
+        opts?.providerOverride,
+        opts?.modelOverride,
+      );
       const res = await getEngine().startSession(agentPath, {
         sessionKey,
         prompt,
@@ -189,6 +205,7 @@ export const tauriChat = {
         provider: opts?.providerOverride,
         model: opts?.modelOverride,
         effort: opts?.effortOverride,
+        compact,
       });
       return res.sessionKey;
     }),
@@ -365,6 +382,11 @@ export interface StartLinkResponse {
   toolkit: string;
 }
 
+export interface ReconnectResult {
+  /** URL to open for OAuth re-consent, or null when refreshed silently. */
+  redirectUrl: string | null;
+}
+
 export const tauriConnections = {
   list: () =>
     call<ComposioStatus>("list_composio_connections", () => getEngine().composioStatus()),
@@ -391,6 +413,21 @@ export const tauriConnections = {
         toolkit: r.toolkit,
       };
     }),
+  disconnectApp: (toolkit: string) =>
+    call<void>(
+      "disconnect_composio_app",
+      () => getEngine().composioDisconnect(toolkit),
+      { toolkit },
+    ),
+  reconnectApp: (toolkit: string) =>
+    call<ReconnectResult>(
+      "reconnect_composio_app",
+      async () => {
+        const r = await getEngine().composioReconnect(toolkit);
+        return { redirectUrl: r.redirectUrl };
+      },
+      { toolkit },
+    ),
   watchConnection: (toolkit: string) =>
     call<void>(
       "watch_composio_connection",
@@ -409,6 +446,7 @@ export const tauriConnections = {
     }),
   completeLogin: (cliKey: string) =>
     call<void>("complete_composio_login", () => getEngine().composioCompleteLogin(cliKey)),
+  logout: () => call<void>("logout_composio", () => getEngine().composioLogout()),
   isCliInstalled: () =>
     call<boolean>("is_composio_cli_installed", () => getEngine().composioCliInstalled()),
   installCli: () => call<void>("install_composio_cli", () => getEngine().composioInstallCli()),
@@ -489,6 +527,9 @@ interface RawConversation {
   updated_at?: string;
   agent_path: string;
   agent_name: string;
+  agent?: string;
+  routine_id?: string;
+  worktree_path?: string | null;
 }
 
 export const tauriConversations = {
@@ -515,6 +556,9 @@ function conversationToRaw(
     updated_at: c.updated_at,
     agent_path: c.agent_path,
     agent_name: c.agent_name,
+    agent: c.agent,
+    routine_id: c.routine_id,
+    worktree_path: c.worktree_path,
   };
 }
 
@@ -588,6 +632,13 @@ export const tauriActivity = {
   ) => activityData.update(agentPath, activityId, update).then(() => undefined),
   delete: (agentPath: string, activityId: string) =>
     activityData.remove(agentPath, activityId),
+  bulkUpdate: (
+    agentPath: string,
+    ids: string[],
+    update: activityData.ActivityUpdate,
+  ) => activityData.bulkUpdate(agentPath, ids, update),
+  bulkDelete: (agentPath: string, ids: string[]) =>
+    activityData.bulkRemove(agentPath, ids),
 };
 
 // ─── Git (read-only inspection — advanced.git_panel) ──────────────────
@@ -737,6 +788,12 @@ export const tauriProvider = {
    * migration step. The companion model key is new (no upgrade path needed
    * because a missing value just falls back to the provider's
    * `defaultModel`).
+   *
+   * The stored model is normalized through `normalizeLegacyModel` on the way
+   * out: an install that last picked a model before the catalog pinned
+   * versions has a bare `"opus"`/`"sonnet"` in this preference, and creation
+   * dialogs seed a new agent's config from this value. Normalizing here means
+   * they never write a retired alias into a fresh config.
    */
   getLastUsed: () =>
     call<{ provider: string | null; model: string | null }>(
@@ -747,7 +804,7 @@ export const tauriProvider = {
           eng.getPreference(DEFAULT_PROVIDER_PREF_KEY),
           eng.getPreference(DEFAULT_MODEL_PREF_KEY),
         ]);
-        return { provider: provider ?? null, model: model ?? null };
+        return { provider: provider ?? null, model: normalizeLegacyModel(model) };
       },
     ),
   setLastUsed: (provider: string, model: string) =>
@@ -756,8 +813,8 @@ export const tauriProvider = {
       await eng.setPreference(DEFAULT_PROVIDER_PREF_KEY, provider);
       await eng.setPreference(DEFAULT_MODEL_PREF_KEY, model);
     }),
-  launchLogin: (provider: string) =>
-    call<void>("launch_provider_login", () => getEngine().providerLogin(provider)),
+  launchLogin: (provider: string, opts?: { deviceAuth?: boolean }) =>
+    call<void>("launch_provider_login", () => getEngine().providerLogin(provider, opts)),
   launchLogout: (provider: string) =>
     call<void>("launch_provider_logout", () => getEngine().providerLogout(provider)),
   /**
@@ -772,6 +829,17 @@ export const tauriProvider = {
     call<void>("submit_provider_login_code", () =>
       getEngine().submitProviderLoginCode(provider, code),
     ),
+  /**
+   * Abort an in-flight sign-in the user gave up on (closed the OAuth
+   * tab, stuck spinner). Kills the CLI subprocess on the engine and
+   * frees the slot so the next `launchLogin` isn't rejected as
+   * "already pending" — the user can retry immediately instead of
+   * restarting Houston (#237). Idempotent and benign: the engine emits
+   * a `ProviderLoginComplete` with `success: false` and no `error`, so
+   * pending spinners clear without an error toast.
+   */
+  cancelLogin: (provider: string) =>
+    call<void>("cancel_provider_login", () => getEngine().cancelProviderLogin(provider)),
   /**
    * Save a Gemini API key to `~/.gemini/.env` via the engine. Errors
    * surface through `call`'s standard rejection path; the caller is
@@ -790,6 +858,40 @@ import { osCheckClaudeCli, osOpenUrl } from "./os-bridge";
 export const tauriSystem = {
   checkClaudeCli: () => osCheckClaudeCli(),
   openUrl: (url: string) => osOpenUrl(url),
+};
+
+// ─── Claude Code runtime installer ────────────────────────────────────
+
+import type { ClaudeStatus as EngineClaudeStatus } from "@houston-ai/engine-client";
+
+/** Mirror of the engine `ClaudeStatus` — re-exported so callers can
+ *  import from `lib/tauri.ts` like the other engine DTOs. */
+export type ClaudeStatus = EngineClaudeStatus;
+
+/** Runtime install bridge for the proprietary Claude Code CLI.
+ *
+ *  Distinct from `tauriProvider`: provider-level concerns (auth, CLI
+ *  spawn) sit on `tauriProvider`; the *install* of Anthropic's CLI is
+ *  Houston-managed (we download it because the license forbids
+ *  bundling) and exposed here so the onboarding card can show a
+ *  specific "couldn't reach Anthropic — Retry" affordance — issue #231.
+ */
+export const tauriClaude = {
+  status: () =>
+    call<ClaudeStatus>("claude_status", () => getEngine().claudeStatus()),
+  /**
+   * Triggers the background install. Errors are deliberately not
+   * auto-toasted by `call` — both callers (the onboarding card hook and
+   * the `ClaudeCliFailed` toast retry action) surface failures
+   * themselves, and double-toasting on a retry click is noisy.
+   */
+  install: () =>
+    call<void>(
+      "claude_install",
+      () => getEngine().claudeInstall(),
+      undefined,
+      { toast: false },
+    ),
 };
 
 // ─── Agent file watcher ───────────────────────────────────────────────

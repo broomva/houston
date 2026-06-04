@@ -30,6 +30,10 @@
     "description": "Monte seu time de IA e realize o impossível.",
     "cta": "Novo agente"
   },
+  "errors": {
+    "noAgentForMission": "Escolha um agente antes de iniciar uma missão.",
+    "stopSession": "Não foi possível parar a missão: {{error}}"
+  },
   "agentPicker": {
     "title": "Qual agente deve fazer isso?",
     "description": "Escolha um agente para abrir uma nova conversa."

@@ -62,3 +62,35 @@ export function useDeleteActivity(agentPath: string | undefined) {
     },
   });
 }
+
+/** Patch many activities at once (bulk archive, bulk move-to). */
+export function useBulkUpdateActivity(agentPath: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ ids, update }: { ids: string[]; update: { status?: string } }) =>
+      tauriActivity.bulkUpdate(agentPath!, ids, update),
+    onSuccess: () => {
+      if (agentPath) qc.invalidateQueries({ queryKey: queryKeys.activity(agentPath) });
+    },
+  });
+}
+
+/** Delete many activities at once, wiping each one's attachments + draft. */
+export function useBulkDeleteActivity(agentPath: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (ids: string[]) => {
+      await tauriActivity.bulkDelete(agentPath!, ids);
+      for (const id of ids) {
+        // Per-conversation cleanup is idempotent + best-effort; the bulk
+        // delete above already succeeded, so a stray attachment/draft must
+        // not fail the whole action.
+        await tauriAttachments.delete(`activity-${id}`).catch(() => {});
+        useDraftStore.getState().clearDraft(`activity-${id}`);
+      }
+    },
+    onSuccess: () => {
+      if (agentPath) qc.invalidateQueries({ queryKey: queryKeys.activity(agentPath) });
+    },
+  });
+}

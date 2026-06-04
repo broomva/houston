@@ -39,6 +39,7 @@
   },
   "tabLabels": {
     "activity": "Activity",
+    "archived": "Archived",
     "routines": "Routines",
     "files": "Files",
     "job-description": "Job Description",

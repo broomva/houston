@@ -1,55 +1,31 @@
-import { Suspense, useMemo } from "react";
+import { Suspense } from "react";
 import { Spinner } from "@houston-ai/core";
 import { resolveTabComponent } from "../../agents/tab-resolver";
-import { tauriAgent, tauriFiles, tauriChat } from "../../lib/tauri";
-import type { AgentDefinition, Agent, AgentTab, CustomTabProps } from "../../lib/types";
+import { STANDARD_TABS, type AgentTab } from "../../agents/standard-tabs";
+import type { AgentDefinition, Agent } from "../../lib/types";
 
 interface AgentRendererProps {
   agentDef: AgentDefinition;
   agent: Agent;
-  tabs: AgentTab[];
   activeTabId: string;
-}
-
-/** Build the extra props injected into custom (bundle.js) tab components. */
-function useCustomTabProps(agent: Agent): Omit<CustomTabProps, "agent" | "agentDef"> {
-  return useMemo(() => ({
-    readFile: (name: string) => tauriAgent.readFile(agent.folderPath, name),
-    writeFile: (name: string, content: string) =>
-      tauriAgent.writeFile(agent.folderPath, name, content),
-    listFiles: async () => {
-      const entries = await tauriFiles.list(agent.folderPath);
-      return entries.map((e) => ({
-        path: e.path,
-        name: e.name,
-        size: e.size,
-      }));
-    },
-    sendMessage: (text: string) => {
-      tauriChat.send(agent.folderPath, text, "primary").catch((err) => {
-        console.error("[custom-tab] sendMessage failed:", err);
-      });
-    },
-  }), [agent.folderPath]);
+  /**
+   * Tab set to render. Defaults to the hardcoded standard set; the shell passes
+   * the standard set plus any active flag-gated extras (git/timeline/checkpoints).
+   */
+  tabs?: readonly AgentTab[];
 }
 
 export function AgentRenderer({
   agentDef,
   agent,
-  tabs,
   activeTabId,
+  tabs = STANDARD_TABS,
 }: AgentRendererProps) {
-  const customProps = useCustomTabProps(agent);
-
   return (
     <div className="h-full w-full relative min-h-0">
       {tabs.map((tab) => {
-        const TabComponent = resolveTabComponent(tab, agentDef);
+        const TabComponent = resolveTabComponent(tab);
         const isActive = tab.id === activeTabId;
-        const isCustom = Boolean(tab.customComponent);
-        const props = isCustom
-          ? { agent, agentDef, ...customProps }
-          : { agent, agentDef };
         return (
           <div
             key={tab.id}
@@ -62,7 +38,7 @@ export function AgentRenderer({
                 </div>
               }
             >
-              <TabComponent {...props} />
+              <TabComponent agent={agent} agentDef={agentDef} />
             </Suspense>
           </div>
         );

@@ -41,6 +41,7 @@ impl SessionRunner for LifeRemoteRunner {
         _provider: Provider,
         prompt: String,
         resume_session_id: Option<String>,
+        _resume_fallback_prompt: Option<String>,
         _working_dir: Option<std::path::PathBuf>,
         _model: Option<String>,
         _effort: Option<String>,

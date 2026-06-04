@@ -43,11 +43,13 @@
     "integration": "Integração de app",
     "alreadyConnected": "Já conectado",
     "connected": "Conectado",
+    "connecting": "Conectando...",
     "connect": "Conectar",
-    "verify": "Já me conectei",
-    "verifying": "Verificando...",
-    "notVerified": "Ainda não consigo verificar, tente de novo",
-    "verifiedToast": "{{name}} está conectado"
+    "waitingToConnect": "Aguardando você conectar",
+    "reconnect": "Reconectar",
+    "verifiedToast": "{{name}} está conectado",
+    "connectedFollowup": "Já conectei {{name}}. Pode continuar.",
+    "followupFailed": "Não consegui avisar o assistente que {{name}} está conectado"
   },
   "composioSignin": {
     "appName": "Provedor de integrações",
@@ -59,7 +61,23 @@
   "modelSelector": {
     "selectModel": "Escolha um modelo",
     "model": "Modelo",
-    "notConnected": "Sem conexão"
+    "notConnected": "Sem conexão",
+    "checking": "Verificando...",
+    "effort": "Esforço de raciocínio",
+    "effortLevels": {
+      "low": "Baixo",
+      "medium": "Médio",
+      "high": "Alto",
+      "xhigh": "Muito alto",
+      "max": "Máximo"
+    },
+    "effortDescriptions": {
+      "low": "Mais rápido, menos análise.",
+      "medium": "Equilíbrio entre velocidade e profundidade.",
+      "high": "Análise mais profunda para tarefas difíceis.",
+      "xhigh": "Ideal para tarefas complexas.",
+      "max": "Análise máxima, sem limite de tokens."
+    }
   },
   "contextMeter": {
     "title": "Contexto",
@@ -111,5 +129,6 @@
     "selectMany": "Escolha uma ou mais",
     "answered": "Respondida",
     "preparing": "Preparando a pergunta..."
-  }
+  },
+  "contextCompacted": "Resumimos a conversa anterior para o chat poder continuar"
 }

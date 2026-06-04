@@ -9,26 +9,24 @@ use crate::Provider;
 use tokio::process::Command;
 use tokio::sync::mpsc;
 
-/// Default `model_reasoning_effort` used for Codex when the caller doesn't pass
-/// one explicitly. Always emitted as `-c model_reasoning_effort="<value>"` so
-/// the user's global `~/.codex/config.toml` can never break a Codex session.
-/// Newer Codex CLIs allow values (e.g. `xhigh`) that the bundled CLI rejects;
-/// forcing an override on every spawn keeps Houston resilient regardless of
-/// what the user has installed locally.
-const DEFAULT_CODEX_REASONING_EFFORT: &str = "medium";
-
 /// Spawn a Codex CLI session (`codex exec --json --dangerously-bypass-approvals-and-sandbox`).
 pub(crate) async fn spawn_codex(
     tx: &mpsc::UnboundedSender<SessionUpdate>,
     provider: Provider,
     prompt: String,
     resume_session_id: Option<String>,
+    resume_fallback_prompt: Option<String>,
     working_dir: Option<std::path::PathBuf>,
     model: Option<String>,
     effort: Option<String>,
     system_prompt: Option<String>,
 ) {
-    let effort = Some(effort.unwrap_or_else(|| DEFAULT_CODEX_REASONING_EFFORT.to_string()));
+    // Effort is normally resolved upstream (`sessions::resolve_effort`, which
+    // applies the provider default when nothing valid is configured). Fall
+    // back to the OpenAI adapter's default here too so any direct caller still
+    // emits a deterministic `-c model_reasoning_effort=<value>` rather than
+    // inheriting whatever sits in the user's global `~/.codex/config.toml`.
+    let effort = effort.or_else(|| provider.default_effort().map(str::to_string));
     tracing::info!(
         "[houston:session] spawning codex exec --json (resume={:?}, model={:?}, effort={:?})",
         resume_session_id,
@@ -67,8 +65,18 @@ pub(crate) async fn spawn_codex(
             effort.as_deref(),
             system_prompt.as_deref(),
         );
-        run_cli_process(tx, &mut fresh_cmd, &prompt, provider).await;
+        run_cli_process(
+            tx,
+            &mut fresh_cmd,
+            fresh_retry_prompt(&prompt, resume_fallback_prompt.as_deref()),
+            provider,
+        )
+        .await;
     }
+}
+
+fn fresh_retry_prompt<'a>(prompt: &'a str, resume_fallback_prompt: Option<&'a str>) -> &'a str {
+    resume_fallback_prompt.unwrap_or(prompt)
 }
 
 fn build_codex_command(
@@ -101,4 +109,18 @@ fn build_codex_command(
         cmd.current_dir(dir);
     }
     cmd
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fresh_retry_uses_recovery_prompt_when_available() {
+        assert_eq!(
+            fresh_retry_prompt("latest", Some("recovered history + latest")),
+            "recovered history + latest"
+        );
+        assert_eq!(fresh_retry_prompt("latest", None), "latest");
+    }
 }

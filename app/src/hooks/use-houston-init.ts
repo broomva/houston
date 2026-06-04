@@ -6,6 +6,7 @@ import { useAgentStore } from "../stores/agents";
 import { useUIStore } from "../stores/ui";
 import { analytics } from "../lib/analytics";
 import { runFlagMigrations } from "../lib/featureFlags";
+import { DEFAULT_TAB_ID } from "../agents/standard-tabs";
 
 /**
  * App initialization hook. Called once in App.tsx.
@@ -72,10 +73,7 @@ export function useHoustonInit() {
           const saved = agents.find((a) => a.id === lastId);
           if (saved) {
             setCurrent(saved);
-            const agentDef = useAgentCatalogStore.getState().getById(saved.configId);
-            if (agentDef?.config.defaultTab) {
-              setViewMode(agentDef.config.defaultTab);
-            }
+            setViewMode(DEFAULT_TAB_ID);
           }
         }
       } catch (e) {

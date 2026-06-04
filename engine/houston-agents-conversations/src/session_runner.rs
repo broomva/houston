@@ -92,6 +92,7 @@ pub fn spawn_and_monitor(
     session_key: String,
     prompt: String,
     resume_id: Option<String>,
+    resume_fallback_prompt: Option<String>,
     working_dir: PathBuf,
     system_prompt: Option<String>,
     session_id_handle: Option<SessionIdHandle>,
@@ -113,6 +114,7 @@ pub fn spawn_and_monitor(
         provider,
         prompt,
         resume_id,
+        resume_fallback_prompt,
         Some(working_dir),
         model,
         effort,
@@ -439,11 +441,14 @@ fn serialize_for_persist(item: &FeedItem) -> Option<(String, String)> {
             output_tokens,
             cache_creation_input_tokens,
             cache_read_input_tokens,
+            usage,
         } => {
-            // Token fields feed the `advanced.context_meter` wheel; they
-            // are persisted even when null so resumed conversations can
-            // distinguish "unknown" from "actually zero." Anthropic + gemini
-            // populate; codex populates input/output/cache_read only.
+            // Two coexisting token surfaces, both persisted even when null:
+            // the flat four-way split feeds the fork's `advanced.context_meter`
+            // wheel (Anthropic + gemini populate; codex populates
+            // input/output/cache_read only), and `usage` serializes its
+            // TokenUsage object so upstream's context-usage indicator survives
+            // a history reload — same shape as the live FeedItem event.
             let data = serde_json::json!({
                 "result": result,
                 "cost_usd": cost_usd,
@@ -452,6 +457,7 @@ fn serialize_for_persist(item: &FeedItem) -> Option<(String, String)> {
                 "output_tokens": output_tokens,
                 "cache_creation_input_tokens": cache_creation_input_tokens,
                 "cache_read_input_tokens": cache_read_input_tokens,
+                "usage": usage,
             });
             Some(("final_result".into(), data.to_string()))
         }
@@ -468,6 +474,16 @@ fn serialize_for_persist(item: &FeedItem) -> Option<(String, String)> {
             // re-render the same card.
             let data = serde_json::to_string(err).unwrap_or_else(|_| "null".into());
             Some(("provider_error".into(), data))
+        }
+        FeedItem::ContextCompacted {
+            trigger,
+            pre_tokens,
+        } => {
+            // Persist the compaction divider so it survives a history reload,
+            // matching the live FeedItem wire shape (`data` = the variant
+            // fields). `trigger` serializes to "native"/"proactive".
+            let data = serde_json::json!({ "trigger": trigger, "pre_tokens": pre_tokens });
+            Some(("context_compacted".into(), data.to_string()))
         }
         // Skip streaming items — they get replaced by finals.
         FeedItem::AssistantTextStreaming(_) | FeedItem::ThinkingStreaming(_) => None,
@@ -696,5 +712,83 @@ mod tests {
 
         assert_eq!(feed_type, "tool_runtime_error");
         assert_eq!(data, r#"{"details":"exec failed","kind":"local_tool"}"#);
+    }
+
+    #[test]
+    fn final_result_persists_token_usage_for_history() {
+        // The context-usage indicator reads usage back from history on reload,
+        // so the persisted JSON must carry the TokenUsage object.
+        let item = FeedItem::FinalResult {
+            result: "Done".to_string(),
+            cost_usd: Some(0.01),
+            duration_ms: Some(1200),
+            input_tokens: None,
+            output_tokens: None,
+            cache_creation_input_tokens: None,
+            cache_read_input_tokens: None,
+            usage: Some(houston_terminal_manager::TokenUsage {
+                context_tokens: 151_500,
+                output_tokens: 420,
+                cached_tokens: 150_000,
+            }),
+        };
+
+        let (feed_type, data) = serialize_for_persist(&item).expect("serializes");
+
+        assert_eq!(feed_type, "final_result");
+        let parsed: serde_json::Value = serde_json::from_str(&data).unwrap();
+        assert_eq!(parsed["usage"]["context_tokens"], 151_500);
+        assert_eq!(parsed["usage"]["cached_tokens"], 150_000);
+        assert_eq!(parsed["usage"]["output_tokens"], 420);
+    }
+
+    #[test]
+    fn context_compacted_persists_for_history() {
+        // The compaction divider must survive a history reload, so it
+        // serializes to its wire shape (`trigger` + `pre_tokens`).
+        let item = FeedItem::ContextCompacted {
+            trigger: houston_terminal_manager::CompactTrigger::Proactive,
+            pre_tokens: Some(185_000),
+        };
+
+        let (feed_type, data) = serialize_for_persist(&item).expect("serializes");
+
+        assert_eq!(feed_type, "context_compacted");
+        let parsed: serde_json::Value = serde_json::from_str(&data).unwrap();
+        assert_eq!(parsed["trigger"], "proactive");
+        assert_eq!(parsed["pre_tokens"], 185_000);
+    }
+
+    #[test]
+    fn context_compacted_native_without_pre_tokens_persists_null() {
+        let item = FeedItem::ContextCompacted {
+            trigger: houston_terminal_manager::CompactTrigger::Native,
+            pre_tokens: None,
+        };
+
+        let (feed_type, data) = serialize_for_persist(&item).expect("serializes");
+
+        assert_eq!(feed_type, "context_compacted");
+        let parsed: serde_json::Value = serde_json::from_str(&data).unwrap();
+        assert_eq!(parsed["trigger"], "native");
+        assert!(parsed["pre_tokens"].is_null());
+    }
+
+    #[test]
+    fn final_result_without_usage_persists_null() {
+        let item = FeedItem::FinalResult {
+            result: "Done".to_string(),
+            cost_usd: None,
+            duration_ms: None,
+            input_tokens: None,
+            output_tokens: None,
+            cache_creation_input_tokens: None,
+            cache_read_input_tokens: None,
+            usage: None,
+        };
+
+        let (_, data) = serialize_for_persist(&item).expect("serializes");
+        let parsed: serde_json::Value = serde_json::from_str(&data).unwrap();
+        assert!(parsed["usage"].is_null());
     }
 }

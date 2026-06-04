@@ -39,6 +39,7 @@
   },
   "tabLabels": {
     "activity": "Actividad",
+    "archived": "Archivadas",
     "routines": "Rutinas",
     "files": "Archivos",
     "job-description": "Descripción del rol",

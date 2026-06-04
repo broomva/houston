@@ -5,11 +5,16 @@
     "approve": "Move to done",
     "approveTooltip": "Move to done",
     "renameTooltip": "Change title",
-    "deleteTooltip": "Delete"
+    "deleteTooltip": "Delete",
+    "select": "Select mission",
+    "openTerminalFailed": "Couldn't open the terminal: {{error}}"
   },
   "deleteCard": {
     "titleWithName": "Delete \"{{name}}\"?",
     "description": "This item and its history will be permanently removed."
+  },
+  "tags": {
+    "routine": "Routine"
   },
   "empty": {
     "title": "No conversations yet",
@@ -49,5 +54,49 @@
   },
   "selectedSkill": {
     "cancel": "Close"
+  },
+  "bulk": {
+    "selected_one": "{{count}} selected",
+    "selected_other": "{{count}} selected",
+    "moveTo": "Move to",
+    "selectAll": "Select all",
+    "archive": "Archive",
+    "delete": "Delete",
+    "clear": "Clear selection",
+    "cancel": "Cancel",
+    "error": "Couldn't update the selected missions: {{error}}",
+    "confirmMove": {
+      "title": "Move missions?",
+      "description_one": "Move {{count}} mission to {{target}}?",
+      "description_other": "Move {{count}} missions to {{target}}?",
+      "action": "Move"
+    },
+    "confirmArchive": {
+      "title": "Archive missions?",
+      "description_one": "Archive {{count}} mission? You can reopen it from the Archived tab.",
+      "description_other": "Archive {{count}} missions? You can reopen them from the Archived tab.",
+      "action": "Archive"
+    },
+    "confirmDelete": {
+      "title": "Delete missions?",
+      "description_one": "Permanently delete {{count}} mission and its history?",
+      "description_other": "Permanently delete {{count}} missions and their history?",
+      "action": "Delete"
+    }
+  },
+  "doneArchive": {
+    "tooltip": "Archive all done",
+    "confirmTitle": "Archive done missions?",
+    "confirmDescription_one": "Archive {{count}} mission in Done? You can reopen it from the Archived tab.",
+    "confirmDescription_other": "Archive {{count}} missions in Done? You can reopen them from the Archived tab.",
+    "confirmAction": "Archive all"
+  },
+  "archived": {
+    "emptyTitle": "No archived missions",
+    "emptyDescription": "Archived missions appear here. Reply to one to bring it back.",
+    "searchPlaceholder": "Search archived missions"
+  },
+  "dnd": {
+    "moveError": "Couldn't move the mission: {{error}}"
   }
 }

@@ -23,6 +23,17 @@ export type FeedItem =
     }
   | { feed_type: "system_message"; data: string }
   | {
+      /**
+       * A context-compaction boundary. Earlier turns were summarized to free
+       * context, either by the provider CLI itself (`native`) or by Houston's
+       * proactive reseed (`proactive`). Rendered as a subtle divider; the full
+       * chat above and below stays visible. `pre_tokens` is how full the
+       * context was just before compaction, when reported.
+       */
+      feed_type: "context_compacted";
+      data: { trigger: "native" | "proactive"; pre_tokens?: number | null };
+    }
+  | {
       feed_type: "file_changes";
       data: { created: string[]; modified: string[] };
     }
@@ -33,15 +44,33 @@ export type FeedItem =
         cost_usd: number | null;
         duration_ms: number | null;
         /** Tokens the model saw in its context this turn (Anthropic-only on Claude; codex/gemini may be null). */
-        input_tokens: number | null;
+        input_tokens?: number | null;
         /** Tokens the model generated this turn. */
-        output_tokens: number | null;
+        output_tokens?: number | null;
         /** Tokens written to Anthropic prompt cache this turn. Null when caching is off. */
-        cache_creation_input_tokens: number | null;
+        cache_creation_input_tokens?: number | null;
         /** Tokens served from Anthropic prompt cache this turn. Null when caching is off. */
-        cache_read_input_tokens: number | null;
+        cache_read_input_tokens?: number | null;
+        /**
+         * Normalized token usage for the turn. Present for providers that
+         * report it (Anthropic, Codex); `null`/absent otherwise. Drives the
+         * composer context-usage indicator.
+         */
+        usage?: TokenUsage | null;
       };
     };
+
+/**
+ * Provider-agnostic token usage for one turn. Mirrors the Rust `TokenUsage`
+ * in `houston-terminal-manager`. `context_tokens` is the prompt size of the
+ * most recent model request, i.e. how much of the context window is in use;
+ * `cached_tokens` (a subset) and `output_tokens` are informational detail.
+ */
+export interface TokenUsage {
+  context_tokens: number;
+  output_tokens: number;
+  cached_tokens: number;
+}
 
 export interface ToolRuntimeErrorEntry {
   kind: "local_tool" | "provider_process" | "provider_model_unsupported";

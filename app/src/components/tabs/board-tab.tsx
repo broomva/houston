@@ -3,8 +3,8 @@ import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
 import { AIBoard } from "@houston-ai/board";
 import type { KanbanItem, NewPanelOpener } from "@houston-ai/board";
+import { mergeFeedHistory } from "@houston-ai/chat";
 import type { FeedItem } from "@houston-ai/chat";
-import { Terminal, GitBranch } from "lucide-react";
 
 import { useFeedStore } from "../../stores/feeds";
 import { useUIStore } from "../../stores/ui";
@@ -21,13 +21,18 @@ import {
   useUpdateActivity,
 } from "../../hooks/queries";
 import { useAgentChatPanel } from "../use-agent-chat-panel";
-import { tauriActivity, tauriChat, tauriAttachments, tauriWorktree, tauriShell, tauriTerminal, tauriConfig, tauriPreferences } from "../../lib/tauri";
+import { tauriActivity, tauriChat, tauriAttachments } from "../../lib/tauri";
 import { openAgentHref } from "../../lib/open-href";
 import { createMission } from "../../lib/create-mission";
+import {
+  createMissionWorktreeIfEnabled,
+  openMissionWorktreeTerminal,
+} from "../../lib/mission-worktree";
 import { formatVisibleMessageText } from "../../lib/queued-chat";
 import { buildAttachmentPrompt } from "../../lib/attachment-message";
 import { queryKeys } from "../../lib/query-keys";
 import { analytics } from "../../lib/analytics";
+import { classifyFileKind } from "../../lib/file-kind";
 import type { TabProps } from "../../lib/types";
 import { useDetailPanelContainer } from "../shell/detail-panel-context";
 import { HoustonThinkingIndicator } from "../shell/experience-card";
@@ -38,12 +43,27 @@ import { MissionBoardEmptyState } from "../mission-board-empty-state";
 import { useMissionSearch } from "../use-mission-search";
 import { useAttachmentRejectionDialog } from "../attachment-rejection-dialog";
 import { buildMissionBoardColumns } from "../mission-board-columns";
+import { useBoardSelection } from "../use-board-selection";
+import { ArchiveDoneButton } from "../archive-done-button";
+import { SelectAllButton } from "../select-all-button";
+import { selectActive, moveTargetsForSection, areAllSelected, canDropMission } from "../../lib/mission-selection";
 import { navigateBoard } from "../../lib/board-navigate";
+import { resolvePendingActivitySelection } from "../../lib/notification-nav";
+import { missionCardTags } from "../../lib/mission-card";
+import {
+  MissionWorktreeCardAction,
+  MissionWorktreePanelActions,
+} from "../mission-worktree-actions";
 
 // Stable empty reference so the feed store selector doesn't return a new
 // object every render when this agent has no feeds yet (which would otherwise
 // trigger "getSnapshot should be cached" / infinite loop in React).
 const EMPTY_FEED_BUCKET: Record<string, never> = Object.freeze({});
+
+// Sentinel lock used when a multi-selection no longer maps to exactly one
+// board section (a live status change split or emptied it). It matches no real
+// column id, so every column keeps its checkbox hidden until the user clears.
+const LOCKED_SECTION_SENTINEL = " mixed-section";
 
 export default function BoardTab({ agent, agentDef }: TabProps) {
   const { t } = useTranslation(["board", "dashboard", "chat"]);
@@ -55,6 +75,7 @@ export default function BoardTab({ agent, agentDef }: TabProps) {
     deleteTooltip: t("board:cardActions.deleteTooltip"),
     deleteTitle: (name: string) => t("board:deleteCard.titleWithName", { name }),
     deleteDescription: t("board:deleteCard.description"),
+    selectTooltip: t("board:cardActions.select"),
   };
   // Mirror Mission Control's columns so the tab and dashboard stay in
   // sync. Without an explicit `columns` prop AIBoard falls back to its
@@ -66,6 +87,9 @@ export default function BoardTab({ agent, agentDef }: TabProps) {
   const { data: rawItems } = useActivity(path);
   const deleteActivity = useDeleteActivity(path);
   const updateActivity = useUpdateActivity(path);
+  // Multi-select + bulk actions (archive/move/delete). Keyed on agent.id so
+  // the selection resets when this reused tab switches agents.
+  const selection = useBoardSelection(path, agent.id);
   const queryClient = useQueryClient();
   const setOnStartMission = useUIStore((s) => s.setOnStartMission);
   const setOnBoardNavigate = useUIStore((s) => s.setOnBoardNavigate);
@@ -98,54 +122,197 @@ export default function BoardTab({ agent, agentDef }: TabProps) {
     if (agentModes?.length) setPendingAgentMode(agentModes[0].id);
     openerRef.current?.({ focusComposer: true });
   }, [agentModes]);
-  const boardColumns = buildMissionBoardColumns(
-    {
-      running: t("dashboard:columns.running"),
-      needsYou: t("dashboard:columns.needsYou"),
-      done: t("dashboard:columns.done"),
-      newMission: t("empty.newMission"),
+  // Archived missions live in their own tab — keep them off the active board
+  // (and out of search / arrow-nav / counts).
+  const activeRaw = useMemo(() => selectActive(rawItems ?? []), [rawItems]);
+  // Base columns carry no header actions yet — they're the single source of
+  // truth for which statuses belong to which section. Header actions are
+  // injected into `boardColumns` below (kept separate to avoid a cycle:
+  // the actions depend on the section lock, which is derived from these).
+  const baseColumns = useMemo(
+    () =>
+      buildMissionBoardColumns(
+        {
+          running: t("dashboard:columns.running"),
+          needsYou: t("dashboard:columns.needsYou"),
+          done: t("dashboard:columns.done"),
+          newMission: t("empty.newMission"),
+        },
+        openDefaultMission,
+      ),
+    [t, openDefaultMission],
+  );
+  const columnOfStatus = useCallback(
+    (status: string) => baseColumns.find((c) => c.statuses.includes(status))?.id ?? null,
+    [baseColumns],
+  );
+  const idsInColumn = useCallback(
+    (columnId: string) =>
+      activeRaw.filter((a) => columnOfStatus(a.status) === columnId).map((a) => a.id),
+    [activeRaw, columnOfStatus],
+  );
+  const doneIds = useMemo(() => idsInColumn("done"), [idsInColumn]);
+  const needsYouIds = useMemo(() => idsInColumn("needs_you"), [idsInColumn]);
+
+  // Multi-select is locked to a single board section. The lock is the column
+  // shared by every selected card; cards in other columns hide their checkbox
+  // (handled in AIBoard). Derive it from the WHOLE selection, not just the
+  // first card, so a live status change (a running card finishing, a card
+  // archived elsewhere) can't drop the lock to null and silently reopen
+  // cross-section selection — if the selection ever spans/loses its section we
+  // keep the board locked to a sentinel that matches no column id.
+  const selectionLockColumnId = useMemo(() => {
+    if (selection.selectedIds.size === 0) return null;
+    const sections = new Set<string>();
+    for (const a of activeRaw) {
+      if (!selection.selectedIds.has(a.id)) continue;
+      const col = columnOfStatus(a.status);
+      if (col) sections.add(col);
+    }
+    return sections.size === 1 ? [...sections][0] : LOCKED_SECTION_SENTINEL;
+  }, [selection.selectedIds, activeRaw, columnOfStatus]);
+  const handleToggleSelect = useCallback(
+    (item: KanbanItem) => {
+      // Always allow DESELECTING; only block ADDING a card from another
+      // section so the user can never build a cross-section selection (and can
+      // still recover from one a live status change may have produced).
+      const alreadySelected = selection.selectedIds.has(item.id);
+      if (!alreadySelected && selectionLockColumnId) {
+        if (columnOfStatus(item.status) !== selectionLockColumnId) return;
+      }
+      selection.toggle(item);
     },
-    openDefaultMission,
+    [selection.toggle, selection.selectedIds, selectionLockColumnId, columnOfStatus],
+  );
+
+  const handleArchiveDone = useCallback(() => {
+    selection.archiveIds(doneIds).catch((err) =>
+      addToast({ title: t("board:bulk.error", { error: String(err) }), variant: "error" }),
+    );
+  }, [selection, doneIds, addToast, t]);
+  // Done header: "archive all". Needs you header: a "select all" checkbox that
+  // appears once a needs-you selection is active, so the user can grab (or
+  // clear) the whole section in one click.
+  const doneHeaderAction =
+    doneIds.length > 0 ? (
+      <ArchiveDoneButton
+        onConfirm={handleArchiveDone}
+        labels={{
+          tooltip: t("board:doneArchive.tooltip"),
+          confirmTitle: t("board:doneArchive.confirmTitle"),
+          confirmDescription: t("board:doneArchive.confirmDescription", {
+            count: doneIds.length,
+          }),
+          confirmAction: t("board:doneArchive.confirmAction"),
+          cancel: t("board:bulk.cancel"),
+        }}
+      />
+    ) : undefined;
+  const needsYouAllSelected = areAllSelected(needsYouIds, selection.selectedIds);
+  const needsYouHeaderAction =
+    selectionLockColumnId === "needs_you" ? (
+      <SelectAllButton
+        checked={needsYouAllSelected}
+        indeterminate={
+          !needsYouAllSelected && needsYouIds.some((id) => selection.selectedIds.has(id))
+        }
+        onToggle={() => selection.toggleAll(needsYouIds)}
+        label={t("board:bulk.selectAll")}
+      />
+    ) : undefined;
+  const boardColumns = useMemo(
+    () =>
+      baseColumns.map((c) =>
+        c.id === "done"
+          ? { ...c, headerAction: doneHeaderAction }
+          : c.id === "needs_you"
+            ? { ...c, headerAction: needsYouHeaderAction }
+            : c,
+      ),
+    [baseColumns, doneHeaderAction, needsYouHeaderAction],
   );
 
   const items: KanbanItem[] = useMemo(
-    () => (rawItems ?? []).map((t) => {
-      const mode = agentModes?.find((m) => m.id === t.agent);
+    () => activeRaw.map((activity) => {
       return {
-        id: t.id,
-        title: t.title,
-        description: t.description,
-        status: t.status,
-        updatedAt: t.updated_at ?? new Date().toISOString(),
+        id: activity.id,
+        title: activity.title,
+        description: activity.description,
+        status: activity.status,
+        updatedAt: activity.updated_at ?? new Date().toISOString(),
         group: agent.name,
-        tags: mode ? [mode.name] : (t.routine_id ? ["Routine"] : undefined),
+        tags: missionCardTags({
+          agent: activity.agent,
+          agentModes,
+          routineId: activity.routine_id,
+          routineLabel: t("board:tags.routine"),
+        }),
         metadata: {
-          ...(t.session_key ? { sessionKey: t.session_key } : {}),
-          ...(t.routine_id ? { routineId: t.routine_id } : {}),
-          ...(t.agent ? { agent: t.agent } : {}),
-          ...(t.worktree_path ? { worktreePath: t.worktree_path } : {}),
+          ...(activity.session_key ? { sessionKey: activity.session_key } : {}),
+          ...(activity.routine_id ? { routineId: activity.routine_id } : {}),
+          ...(activity.agent ? { agent: activity.agent } : {}),
+          ...(activity.worktree_path ? { worktreePath: activity.worktree_path } : {}),
         },
       };
     }),
-    [agent.name, agentModes, rawItems],
+    [agent.name, agentModes, activeRaw, t],
   );
 
   // Read and consume pending selection from Mission Control
   const pendingId = useUIStore((s) => s.activityPanelId);
+  const pendingForceOpen = useUIStore((s) => s.activityPanelForceOpen);
   const clearPending = useUIStore((s) => s.setActivityPanelId);
   const [selectedId, setSelectedId] = useState<string | null>(pendingId);
   // The keyboard "focus ring" card — moved by arrow keys, opened by
   // Enter. Kept separate from `selectedId` so arrow nav doesn't auto-
   // mount the chat panel.
   const [highlightedId, setHighlightedId] = useState<string | null>(pendingId);
+
+  // `selectedId`/`highlightedId` are per-agent (a mission belongs to one
+  // agent), but this BoardTab instance is reused across agents — it's keyed by
+  // tab, not agent (see experience-renderer.tsx + workspace-shell.tsx). So when
+  // the active agent changes we reconcile the selection during render (React's
+  // "adjust state on prop change" pattern: the render-phase setState re-renders
+  // before effects run).
+  //
+  // A cross-agent nav (notification click, command palette, Mission Control)
+  // switches the agent AND publishes its target activity via `activityPanelId`
+  // in the same update, so on a switch we adopt that target right here. We
+  // can't defer it to the consume effect below: `missionPanelOpen` lives in the
+  // global UI store and still describes the agent we just LEFT (it lags the
+  // switch until AIBoard reconciles), so that effect's guard would swallow the
+  // nav and strand the user on the right agent with no chat open. A plain
+  // sidebar switch carries no pending target, so this just drops the previous
+  // agent's selection.
+  const [trackedAgentId, setTrackedAgentId] = useState(agent.id);
+  if (trackedAgentId !== agent.id) {
+    setTrackedAgentId(agent.id);
+    const next = resolvePendingActivitySelection({
+      pendingActivityId: pendingId,
+      forceOpen: pendingForceOpen,
+      agentSwitched: true,
+      selectedId,
+      missionPanelOpen,
+    });
+    setSelectedId(next);
+    setHighlightedId(next);
+  }
+
   useEffect(() => {
-    if (pendingId) {
-      // Only navigate if the user isn't already viewing a conversation
-      // and hasn't opened the New Mission panel.
-      if (!selectedId && !missionPanelOpen) setSelectedId(pendingId);
-      clearPending(null);
-    }
-  }, [pendingId, clearPending, selectedId, missionPanelOpen]);
+    if (!pendingId) return;
+    // Same-agent nav (the switch case is handled in render above): honor the
+    // guard so we don't yank the user out of an open conversation or a New
+    // Mission composer on the agent they're already viewing.
+    const next = resolvePendingActivitySelection({
+      pendingActivityId: pendingId,
+      forceOpen: pendingForceOpen,
+      agentSwitched: false,
+      selectedId,
+      missionPanelOpen,
+    });
+    if (next) setSelectedId(next);
+    clearPending(null);
+  }, [pendingId, pendingForceOpen, clearPending, selectedId, missionPanelOpen]);
 
   // Per-agent session key for the currently selected card. Drives the
   // panel hook's action routing (mid-conversation send vs new
@@ -193,22 +360,15 @@ export default function BoardTab({ agent, agentDef }: TabProps) {
   const setFeed = useFeedStore((s) => s.setFeed);
   const handleHistoryLoaded = useCallback(
     (sessionKey: string, items: FeedItem[]) => {
-      // Seed the feed store with persisted history when the user opens
-      // an activity. After this, the store is the single source of
-      // truth — live WS events append cleanly and no "liveFeed wins if
-      // non-empty" hack is needed. Any items already in the bucket
-      // from WS events that arrived between activity creation and
-      // selection are preserved by merging the server history with
-      // the current bucket and dropping exact duplicates by position.
+      // Seed the feed store with persisted history when the user opens an
+      // activity. After this the store is the single source of truth — live
+      // WS events append cleanly. Any items already in the bucket from WS
+      // events that landed between activity creation and selection (e.g. a
+      // routine that ran and surfaced in the background) are reconciled with
+      // the server slice by turn identity: streaming/final variants of the
+      // same turn collapse so the conversation doesn't render twice (#363).
       const current = useFeedStore.getState().items[path]?.[sessionKey] ?? [];
-      // Server history is authoritative for everything persisted up to
-      // load time. Anything currently in `current` that isn't in the
-      // server history must be either an optimistic overlay we pushed
-      // or an event that landed mid-load. Append those after the
-      // server slice.
-      const serverIds = new Set(items.map((it) => JSON.stringify(it)));
-      const tail = current.filter((it) => !serverIds.has(JSON.stringify(it)));
-      setFeed(path, sessionKey, [...items, ...tail]);
+      setFeed(path, sessionKey, mergeFeedHistory(items, current));
     },
     [path, setFeed],
   );
@@ -221,9 +381,17 @@ export default function BoardTab({ agent, agentDef }: TabProps) {
   // terminal state.
   const effectiveLoading = useMemo(() => {
     const out: Record<string, boolean> = {};
+    const activityStatusBySession = new Map<string, string>();
+    for (const a of rawItems ?? []) {
+      activityStatusBySession.set(a.session_key ?? `activity-${a.id}`, a.status);
+    }
     for (const [key, value] of Object.entries(loadingState)) {
       if (!value) continue;
       const knownStatus = sessionStatuses[getSessionStatusKey(path, key)];
+      const activityStatus = activityStatusBySession.get(key);
+      if (!knownStatus && activityStatus && activityStatus !== "running") {
+        continue;
+      }
       if (!knownStatus || isActiveSessionStatus(knownStatus)) {
         out[key] = true;
       }
@@ -414,26 +582,104 @@ export default function BoardTab({ agent, agentDef }: TabProps) {
     [updateActivity],
   );
 
+  // Drag a card onto another column to change its status. The board only fires
+  // this for a column `canDropItem` accepted, so `toColumnId` is always a bulk-
+  // move status (done / needs_you) that doubles as the new status. A failure
+  // surfaces as a toast rather than a silent swallow.
+  const handleItemMove = useCallback(
+    async (item: KanbanItem, toColumnId: string) => {
+      try {
+        await updateActivity.mutateAsync({
+          activityId: item.id,
+          update: { status: toColumnId },
+        });
+      } catch (err) {
+        addToast({
+          title: t("board:dnd.moveError", { error: String(err) }),
+          variant: "error",
+        });
+      }
+    },
+    [updateActivity, addToast, t],
+  );
+  // A card can be dropped on a column iff the shared mission rule allows it:
+  // only needs_you / done, and never its current section.
+  const canDropItem = useCallback(
+    (item: KanbanItem, toColumnId: string) =>
+      canDropMission(columnOfStatus(item.status), toColumnId),
+    [columnOfStatus],
+  );
+
+  // Bulk actions surface their failure as a toast (no silent swallow); the
+  // selection clears inside the hook on success.
+  const handleBulkMove = useCallback(
+    async (status: string) => {
+      try {
+        await selection.move(status);
+      } catch (err) {
+        addToast({ title: t("board:bulk.error", { error: String(err) }), variant: "error" });
+      }
+    },
+    [selection, addToast, t],
+  );
+  const handleBulkArchive = useCallback(async () => {
+    try {
+      await selection.archive();
+    } catch (err) {
+      addToast({ title: t("board:bulk.error", { error: String(err) }), variant: "error" });
+    }
+  }, [selection, addToast, t]);
+  const handleBulkDelete = useCallback(async () => {
+    try {
+      await selection.remove();
+    } catch (err) {
+      addToast({ title: t("board:bulk.error", { error: String(err) }), variant: "error" });
+    }
+  }, [selection, addToast, t]);
+
+  const bulkActions = useMemo(
+    () => ({
+      moveTargets: moveTargetsForSection(selectionLockColumnId).map((status) => ({
+        status,
+        label:
+          status === "done"
+            ? t("dashboard:columns.done")
+            : t("dashboard:columns.needsYou"),
+      })),
+      onMove: handleBulkMove,
+      onArchive: handleBulkArchive,
+      onDelete: handleBulkDelete,
+      onClear: selection.clear,
+      labels: {
+        selected: (count: number) => t("board:bulk.selected", { count }),
+        moveTo: t("board:bulk.moveTo"),
+        archive: t("board:bulk.archive"),
+        delete: t("board:bulk.delete"),
+        clear: t("board:bulk.clear"),
+        cancel: t("board:bulk.cancel"),
+        confirmMoveTitle: t("board:bulk.confirmMove.title"),
+        confirmMoveDescription: (count: number, target: string) =>
+          t("board:bulk.confirmMove.description", { count, target }),
+        confirmMoveAction: t("board:bulk.confirmMove.action"),
+        confirmArchiveTitle: t("board:bulk.confirmArchive.title"),
+        confirmArchiveDescription: (count: number) =>
+          t("board:bulk.confirmArchive.description", { count }),
+        confirmArchiveAction: t("board:bulk.confirmArchive.action"),
+        confirmDeleteTitle: t("board:bulk.confirmDelete.title"),
+        confirmDeleteDescription: (count: number) =>
+          t("board:bulk.confirmDelete.description", { count }),
+        confirmDeleteAction: t("board:bulk.confirmDelete.action"),
+      },
+    }),
+    [t, selectionLockColumnId, handleBulkMove, handleBulkArchive, handleBulkDelete, selection.clear],
+  );
+
   const handleCreateConversation = useCallback(
     async (text: string, files: File[]) => {
       const agentMode = pendingAgentMode ?? agentModes?.[0]?.id;
       const mode = agentModes?.find((m) => m.id === agentMode);
 
-      // Check if worktree mode is enabled
-      let worktreePath: string | undefined;
-      try {
-        const cfg = await tauriConfig.read(path);
-        if (cfg.worktreeMode) {
-          const slug = crypto.randomUUID().slice(0, 8);
-          const wt = await tauriWorktree.create(path, slug);
-          worktreePath = wt.path;
-          // Run install command in the new worktree
-          const installCmd = cfg.installCommand as string | undefined;
-          if (installCmd && worktreePath) {
-            tauriShell.run(worktreePath, installCmd).catch(console.error);
-          }
-        }
-      } catch { /* config may not exist yet */ }
+      const worktreePath = await createMissionWorktreeIfEnabled(path);
 
       // Single source of truth for activity creation + session start. The
       // buildPrompt callback fires after the activity row exists so we can
@@ -471,6 +717,10 @@ export default function BoardTab({ agent, agentDef }: TabProps) {
       // createMission bypassed useCreateActivity so invalidate manually.
       queryClient.invalidateQueries({ queryKey: queryKeys.activity(path) });
       analytics.track("mission_created", { agent_mode: agentMode ?? "default" });
+      analytics.track("chat_message_sent");
+      for (const f of files) {
+        analytics.track("file_attached", { file_kind: classifyFileKind(f) });
+      }
       return conversationId;
     },
     [path, agent.id, agent.name, agent.color, pushFeedItem, pendingAgentMode, agentModes, effectiveProvider, effectiveModel, queryClient, t],
@@ -515,6 +765,10 @@ export default function BoardTab({ agent, agentDef }: TabProps) {
         });
         pushFeedItem(path, sessionKey, { feed_type: "user_message", data: prompt });
         setLoading((prev) => ({ ...prev, [sessionKey]: true }));
+        analytics.track("chat_message_sent");
+        for (const f of files) {
+          analytics.track("file_attached", { file_kind: classifyFileKind(f) });
+        }
       } catch (err) {
         setLoading((prev) => ({ ...prev, [sessionKey]: false }));
         pushFeedItem(path, sessionKey, {
@@ -572,60 +826,43 @@ export default function BoardTab({ agent, agentDef }: TabProps) {
     async (item: KanbanItem) => {
       const wtPath = item.metadata?.worktreePath as string | undefined;
       if (!wtPath) return;
-      let devCmd: string | undefined;
       try {
-        const cfg = await tauriConfig.read(path);
-        devCmd = cfg.devCommand as string | undefined;
-      } catch { /* ignore */ }
-      const terminal = await tauriPreferences.get("terminal") ?? undefined;
-      tauriTerminal.open(wtPath, devCmd, terminal).catch(console.error);
+        await openMissionWorktreeTerminal(path, wtPath);
+      } catch (err) {
+        addToast({
+          title: t("board:cardActions.openTerminalFailed", { error: String(err) }),
+          variant: "error",
+        });
+      }
     },
-    [path],
+    [path, addToast, t],
   );
 
   const cardActions = useCallback(
-    (item: KanbanItem) => {
-      const wtPath = item.metadata?.worktreePath as string | undefined;
-      if (!wtPath) return undefined;
-      return (
-        <button
-          onClick={(e) => { e.stopPropagation(); handleRunInTerminal(item); }}
-          className="flex items-center gap-0.5 h-5 px-1.5 rounded-full bg-secondary text-foreground text-[10px] font-medium hover:bg-accent transition-colors duration-200"
-          title={t("cardActions.openTerminal")}
-        >
-          <Terminal className="size-2.5" />
-          {t("cardActions.run")}
-        </button>
-      );
-    },
+    (item: KanbanItem) => (
+      <MissionWorktreeCardAction
+        item={item}
+        labels={{
+          openTerminal: t("board:cardActions.openTerminal"),
+          run: t("board:cardActions.run"),
+        }}
+        onRun={handleRunInTerminal}
+      />
+    ),
     [handleRunInTerminal, t],
   );
 
   const panelActions = useCallback(
-    (item: KanbanItem) => {
-      const wtPath = item.metadata?.worktreePath as string | undefined;
-      if (!wtPath) return undefined;
-      const label = wtPath.split("/").pop() ?? wtPath;
-      return (
-        <div className="flex items-center gap-1.5">
-          <span
-            className="flex items-center gap-1 h-5 px-1.5 rounded-full bg-secondary text-muted-foreground text-[10px] font-medium truncate max-w-[160px]"
-            title={wtPath}
-          >
-            <GitBranch className="size-2.5 shrink-0" />
-            {label}
-          </span>
-          <button
-            onClick={() => handleRunInTerminal(item)}
-            className="flex items-center gap-0.5 h-5 px-1.5 rounded-full bg-secondary text-foreground text-[10px] font-medium hover:bg-accent transition-colors duration-200"
-            title={t("cardActions.openTerminal")}
-          >
-            <Terminal className="size-2.5" />
-            {t("cardActions.run")}
-          </button>
-        </div>
-      );
-    },
+    (item: KanbanItem) => (
+      <MissionWorktreePanelActions
+        item={item}
+        labels={{
+          openTerminal: t("board:cardActions.openTerminal"),
+          run: t("board:cardActions.run"),
+        }}
+        onRun={handleRunInTerminal}
+      />
+    ),
     [handleRunInTerminal, t],
   );
 
@@ -664,12 +901,19 @@ export default function BoardTab({ agent, agentDef }: TabProps) {
           selectedId={selectedId}
           highlightedId={highlightedId}
           onSelect={setSelectedId}
+          selectable
+          selectedIds={selection.selectedIds}
+          onToggleSelect={handleToggleSelect}
+          selectionLockColumnId={selectionLockColumnId}
+          bulkActions={bulkActions}
           panelContainer={panelContainer}
           feedItems={feedItems}
           isLoading={effectiveLoading}
           sessionKeyFor={sessionKeyFor}
           onDelete={handleDelete}
           onApprove={handleApprove}
+          onItemMove={handleItemMove}
+          canDropItem={canDropItem}
           onRename={(item, newTitle) => {
             tauriActivity.update(path, item.id, { title: newTitle }).catch(console.error);
           }}
@@ -698,7 +942,7 @@ export default function BoardTab({ agent, agentDef }: TabProps) {
           prepareAttachments={attachmentValidation.prepareAttachments}
           onAttachmentRejections={attachmentValidation.onAttachmentRejections}
           onOpenLink={handleOpenLink}
-          actions={agentModes ? cardActions : undefined}
+          actions={cardActions}
           panelActions={panelActions}
           cardAvatar={<AgentCardAvatar color={agent.color} />}
           thinkingIndicator={<HoustonThinkingIndicator />}

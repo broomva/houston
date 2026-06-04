@@ -25,7 +25,32 @@
     "count_one": "{{count}} app",
     "count_other": "{{count}} apps",
     "manageOn": "Gestionar {{name}}",
-    "dotAria": "Conectado"
+    "dotAria": "Conectado",
+    "menu": {
+      "aria": "Opciones de {{name}}",
+      "manage": "Gestionar en Composio",
+      "reconnect": "Reconectar",
+      "disconnect": "Desconectar"
+    },
+    "reconnect": {
+      "openedTitle": "Reconectando {{name}}",
+      "openedBody": "Vuelve a iniciar sesión en tu navegador y regresa aquí.",
+      "doneTitle": "{{name}} reconectado"
+    },
+    "disconnect": {
+      "confirmTitle": "¿Desconectar {{name}}?",
+      "confirmBody": "Tu agente perderá el acceso a {{name}}. Puedes reconectarlo cuando quieras.",
+      "confirmAction": "Desconectar",
+      "cancel": "Cancelar"
+    }
+  },
+  "signOut": {
+    "button": "Cerrar sesión",
+    "loading": "Cerrando sesión…",
+    "confirmTitle": "¿Cerrar sesión de Composio?",
+    "confirmBody": "Tendrás que iniciar sesión de nuevo y reconectar las apps que uses. Esto no desinstala el proveedor.",
+    "confirmAction": "Cerrar sesión",
+    "cancel": "Cancelar"
   },
   "browse": {
     "title": "Explorar todas las apps",
@@ -33,6 +58,8 @@
     "count_other": "{{count}} apps",
     "searchPlaceholder": "Buscar apps...",
     "allCategories": "Todas las categorías",
+    "searchCategories": "Buscar categorías...",
+    "noCategoryResults": "No hay categorías que coincidan.",
     "noResults": "No hay apps que coincidan.",
     "loadMoreWithRemaining": "Cargar más ({{count}} restantes)",
     "connectTitle": "Conectar {{name}}"

@@ -37,9 +37,30 @@ pub async fn complete_composio_login(cli_key: String) -> Result<(), String> {
     cli::complete_login(&cli_key).await
 }
 
+/// Log the user out of Composio. Shells out to `composio logout -y`,
+/// which clears `~/.composio/user_data.json`. After this the next
+/// `status()` returns `NeedsAuth` and the UI snaps back to the sign-in
+/// empty state.
+pub async fn logout_composio() -> Result<(), String> {
+    cli::logout().await
+}
+
 /// Start the flow to link an external app to the currently-signed-in account.
 pub async fn connect_composio_app(toolkit: String) -> Result<StartLinkResponse, String> {
     cli::start_link(&toolkit).await
+}
+
+/// Disconnect a linked app: removes every connected account for the
+/// toolkit in the consumer namespace. See `cli::disconnect_toolkit`.
+pub async fn disconnect_composio_app(toolkit: String) -> Result<(), String> {
+    cli::disconnect_toolkit(&toolkit).await.map(|_| ())
+}
+
+/// Reconnect a linked app by refreshing its authentication. Returns the
+/// browser URL the user must open to complete OAuth re-consent, or `None`
+/// for auth schemes that refresh silently. See `cli::reconnect_toolkit`.
+pub async fn reconnect_composio_app(toolkit: String) -> Result<Option<String>, String> {
+    cli::reconnect_toolkit(&toolkit).await
 }
 
 /// List all available Composio apps from the REST API.

@@ -8,6 +8,7 @@ import {
 } from "@houston-ai/core"
 import { Trash2, Check, Pencil } from "lucide-react"
 import type { KanbanItem } from "./types"
+import { BOARD_CARD_DRAG_TYPE } from "./dnd"
 
 export interface KanbanCardLabels {
   /** @deprecated kept for backward-compat. Was the visible Approve pill text;
@@ -19,6 +20,8 @@ export interface KanbanCardLabels {
   /** Delete confirm title, `{name}` substituted with `item.title`. */
   deleteTitle?: (name: string) => string
   deleteDescription?: string
+  /** Accessible label for the multi-select checkbox. */
+  selectTooltip?: string
 }
 
 const DEFAULT_LABELS: Required<KanbanCardLabels> = {
@@ -28,6 +31,7 @@ const DEFAULT_LABELS: Required<KanbanCardLabels> = {
   deleteTooltip: "Delete",
   deleteTitle: (name) => `Delete "${name}"?`,
   deleteDescription: "This item and its history will be permanently removed.",
+  selectTooltip: "Select",
 }
 
 export interface KanbanCardProps {
@@ -47,6 +51,23 @@ export interface KanbanCardProps {
   /** Mark this card as keyboard-focused (highlighted via arrow nav, not yet
    *  opened). Renders a focus ring distinct from `selected`. */
   highlighted?: boolean
+  /** Enable the multi-select checkbox. */
+  selectable?: boolean
+  /** Whether this card is part of the current multi-select set. */
+  selectedForBulk?: boolean
+  /** Whether ANY card is currently multi-selected (keeps every checkbox
+   *  visible without hover so the affordance isn't hover-gated). */
+  anySelected?: boolean
+  /** Toggle this card's membership in the multi-select set. */
+  onToggleSelect?: () => void
+  /** Make the card draggable so it can be dropped onto another column.
+   *  Suppressed while renaming or during a multi-select so it doesn't
+   *  collide with those interactions. */
+  enableDrag?: boolean
+  /** Called when a drag of this card starts. */
+  onDragStart?: () => void
+  /** Called when a drag of this card ends (drop or cancel). */
+  onDragEnd?: () => void
 }
 
 export function KanbanCard({
@@ -63,6 +84,13 @@ export function KanbanCard({
   labels,
   selected = false,
   highlighted = false,
+  selectable = false,
+  selectedForBulk = false,
+  anySelected = false,
+  onToggleSelect,
+  enableDrag = false,
+  onDragStart,
+  onDragEnd,
 }: KanbanCardProps) {
   const l = { ...DEFAULT_LABELS, ...labels }
   const isRunning = runningStatuses.includes(item.status)
@@ -71,7 +99,11 @@ export function KanbanCard({
   const [showConfirm, setShowConfirm] = useState(false)
   const [editing, setEditing] = useState(false)
   const [editValue, setEditValue] = useState(item.title)
+  const [dragging, setDragging] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  // Don't let a drag start while renaming (the title input owns the gesture)
+  // or while a multi-select is active (the bulk action bar owns moves then).
+  const canDrag = enableDrag && !editing && !anySelected
 
   useEffect(() => {
     if (editing) inputRef.current?.focus()
@@ -105,6 +137,21 @@ export function KanbanCard({
     <>
       <div
         onClick={(e) => { e.stopPropagation(); onSelect() }}
+        draggable={canDrag}
+        onDragStart={
+          canDrag
+            ? (e) => {
+                e.dataTransfer.setData(BOARD_CARD_DRAG_TYPE, item.id)
+                e.dataTransfer.effectAllowed = "move"
+                setDragging(true)
+                onDragStart?.()
+              }
+            : undefined
+        }
+        onDragEnd={() => {
+          setDragging(false)
+          onDragEnd?.()
+        }}
         aria-selected={selected || undefined}
         data-highlighted={highlighted || undefined}
         // For running + active, override the running-glow inner fill
@@ -128,7 +175,12 @@ export function KanbanCard({
           // colliding with the conic-gradient keyframe animation.
           // Restrict transitions to the safe properties we actually
           // care about.
-          "group/card relative rounded-xl p-3 cursor-pointer transition-[background-color,box-shadow,border-color] duration-200",
+          "group/card relative rounded-xl p-3 transition-[background-color,box-shadow,border-color] duration-200",
+          // The card body shows the grab "hand" so the whole card reads as
+          // draggable. The title is the one exception: its own span overrides
+          // this with a pointer + underline (see below) so only the title
+          // reads as the click affordance.
+          canDrag ? "cursor-grab active:cursor-grabbing" : "cursor-pointer",
           selected || highlighted ? "bg-accent shadow-md" : "bg-background",
           // Running cards keep their own animated border untouched —
           // setting Tailwind's `border` would override the
@@ -143,11 +195,50 @@ export function KanbanCard({
               : selected || highlighted
                 ? "border border-transparent"
                 : "border border-border/20 shadow-sm hover:shadow-md",
+          // Multi-select ring sits on top of (not replacing) the card's
+          // own border treatment so a selected running card keeps its glow.
+          selectedForBulk &&
+            "ring-2 ring-primary ring-offset-1 ring-offset-background",
+          // Dim the card while it's being dragged.
+          dragging && "opacity-40",
         )}
       >
         {/* Top row: agent info + action buttons */}
         <div className="flex items-center justify-between mb-1.5">
           <div className="flex items-center gap-1.5 min-w-0">
+            {/* Multi-select checkbox. Collapsed to zero width until the card
+                is hovered/focused or a selection is active, so it reveals on
+                hover (pushing the agent name right) yet stays keyboard-
+                reachable — never a hover-only affordance. */}
+            {selectable && onToggleSelect && (
+              <div
+                className={cn(
+                  "shrink-0 overflow-hidden transition-all duration-150",
+                  selectedForBulk || anySelected
+                    ? "w-4 opacity-100"
+                    : "w-0 opacity-0 group-hover/card:w-4 group-hover/card:opacity-100 group-focus-within/card:w-4 group-focus-within/card:opacity-100",
+                )}
+              >
+                <button
+                  type="button"
+                  role="checkbox"
+                  aria-checked={selectedForBulk}
+                  aria-label={l.selectTooltip}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onToggleSelect()
+                  }}
+                  className={cn(
+                    "size-4 rounded-[5px] border flex items-center justify-center transition-colors",
+                    selectedForBulk
+                      ? "bg-primary border-primary text-primary-foreground"
+                      : "border-muted-foreground/40 text-transparent hover:border-foreground",
+                  )}
+                >
+                  <Check className="size-3" strokeWidth={3} />
+                </button>
+              </div>
+            )}
             {avatar ?? (
               item.icon && (
                 <span className="size-3.5 shrink-0 flex items-center justify-center">
@@ -223,7 +314,16 @@ export function KanbanCard({
           />
         ) : (
           <p className="text-[13px] font-medium text-foreground line-clamp-2">
-            {item.title}
+            {/* The title is the explicit click affordance: pointer cursor +
+                underline on hover, scoped to the text glyphs. The click still
+                bubbles to the card's onSelect, and `stopPropagation` keeps a
+                title click from also triggering it twice. */}
+            <span
+              onClick={(e) => { e.stopPropagation(); onSelect() }}
+              className="cursor-pointer hover:underline"
+            >
+              {item.title}
+            </span>
           </p>
         )}
 

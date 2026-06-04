@@ -16,8 +16,12 @@ async fn spawn() -> (SocketAddr, String, tempfile::TempDir, tempfile::TempDir) {
     let token = "ctest".to_string();
     let docs = tempfile::TempDir::new().unwrap();
     let home = tempfile::TempDir::new().unwrap();
-    // Point composio resolution at the empty tempdir so `is_installed()` is false.
+    // Point composio resolution at the empty tempdir so `is_installed()` is
+    // false. Set both home vars: `dirs` reads `HOME` on Unix and `USERPROFILE`
+    // on Windows (via `houston_composio::install::home_dir`), so sandboxing
+    // only `HOME` would leak the real profile on Windows.
     std::env::set_var("HOME", home.path());
+    std::env::set_var("USERPROFILE", home.path());
     let cfg = ServerConfig {
         bind: "127.0.0.1:0".parse().unwrap(),
         token: token.clone(),

@@ -85,6 +85,12 @@ pub struct StartRequest {
     /// in `~/.codex/config.toml`.
     #[serde(default)]
     pub effort: Option<String>,
+    /// When `true`, compact the conversation (summarize + reseed a fresh
+    /// provider session) before running this turn. The frontend sets this
+    /// once the context window is nearly full. Defaults to `false` so older
+    /// clients deserialize unchanged.
+    #[serde(default)]
+    pub compact: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -109,6 +115,13 @@ async fn start_session(
     let ResolvedProviderChoice { provider, model } =
         resolve_provider_with_overrides(&agent_dir, req.provider.as_deref(), req.model.clone())?;
 
+    // Reasoning effort: an explicit request override wins (the onboarding
+    // tutorial forces a known-good value); otherwise resolve the agent's
+    // configured effort, validated against the *final* provider.
+    let effort = req
+        .effort
+        .or_else(|| sessions::resolve_effort(&agent_dir, provider));
+
     let params = StartParams {
         agent_dir,
         working_dir,
@@ -118,7 +131,8 @@ async fn start_session(
         source: req.source,
         provider,
         model,
-        effort: req.effort,
+        effort,
+        compact: req.compact,
     };
 
     let rt = SessionRuntime::clone(&st.engine.sessions);

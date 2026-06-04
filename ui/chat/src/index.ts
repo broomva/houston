@@ -1,6 +1,7 @@
 // === Types ===
 export type {
   FeedItem,
+  TokenUsage,
   RunStatus,
   ToolRuntimeErrorEntry,
   ProviderError,
@@ -179,6 +180,8 @@ export type {
 } from "./chat-panel-types";
 export type { SlashSkillOption } from "./slash-skills";
 export type { ChatProcessLabels } from "./chat-process-block";
+export { ChatStatusLine } from "./chat-status-line";
+export type { ChatStatusLineProps } from "./chat-status-line";
 
 export { AskUserQuestionCard } from "./ask-user-question-card";
 export type {
@@ -223,7 +226,8 @@ export type { UserAttachmentMessageLabels } from "./user-attachment-message";
 
 // === Utilities ===
 export { Typewriter } from "./typewriter";
-export { mergeFeedItem } from "./feed-merge";
+export { mergeFeedItem, mergeFeedHistory, reconcileUserMessageEcho } from "./feed-merge";
+export type { MergeFeedOptions, PendingUserEcho } from "./feed-merge";
 export { ChannelAvatar } from "./channel-avatar";
 export type { ChannelSource } from "./channel-avatar";
 

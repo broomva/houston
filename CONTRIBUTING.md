@@ -119,6 +119,14 @@ cargo test --workspace
 
 ## Conventional Commits
 
+Before opening a PR:
+
+1. Confirm your change fits the bar in [Before you open a PR](#before-you-open-a-pr)
+2. Create a feature branch from `main`
+3. Make your changes
+4. Run `bun run typecheck` and `cargo check --workspace`
+5. Open a PR to `main`, fill out the template honestly
+
 We strictly follow the [Conventional Commits](https://www.conventionalcommits.org/) specification. Commits must be formatted as:
 
 ```
