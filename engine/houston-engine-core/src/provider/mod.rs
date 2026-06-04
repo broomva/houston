@@ -131,7 +131,6 @@ pub async fn launch_login(
         return Ok(());
     }
 
-
     // Gemini has no `gemini auth login` subcommand. Instead, gemini-cli
     // exposes an `authenticate` JSON-RPC method over its `--acp` mode
     // (Agent Communication Protocol) that triggers Google's OAuth flow
@@ -581,7 +580,10 @@ mod tests {
         assert!(msg.contains("os error 193"), "got: {msg}");
         assert!(msg.contains("codex"), "got: {msg}");
         assert!(msg.contains("not a valid application"), "got: {msg}");
-        assert!(msg.contains("codex.exe"), "should name the binary path: {msg}");
+        assert!(
+            msg.contains("codex.exe"),
+            "should name the binary path: {msg}"
+        );
     }
 
     #[test]
@@ -642,7 +644,12 @@ mod tests {
         // Device flow → `codex login --device-auth`.
         assert_eq!(
             select_login_args(openai, true).map(|a| a.to_vec()),
-            Some(vec!["login", "--device-auth", "-c", "model_reasoning_effort=high"])
+            Some(vec![
+                "login",
+                "--device-auth",
+                "-c",
+                "model_reasoning_effort=high"
+            ])
         );
     }
 

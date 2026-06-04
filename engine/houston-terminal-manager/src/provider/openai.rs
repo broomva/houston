@@ -64,7 +64,12 @@ impl ProviderAdapter for OpenAiAdapter {
         // codex polls and writes `~/.codex/auth.json` itself. The
         // `model_reasoning_effort=high` override is the same config guard
         // `login_args` carries.
-        Some(&["login", "--device-auth", "-c", "model_reasoning_effort=high"])
+        Some(&[
+            "login",
+            "--device-auth",
+            "-c",
+            "model_reasoning_effort=high",
+        ])
     }
 
     fn logout_args(&self) -> Option<&'static [&'static str]> {

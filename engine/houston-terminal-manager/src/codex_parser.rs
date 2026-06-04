@@ -613,7 +613,10 @@ mod tests {
                 // accurate value is patched in from the rollout by
                 // `session_io::read_codex_stdout` (see codex_rollout).
                 assert!(result.contains("24885"));
-                assert!(usage.is_none(), "cumulative turn usage must not be trusted as context fill");
+                assert!(
+                    usage.is_none(),
+                    "cumulative turn usage must not be trusted as context fill"
+                );
             }
             other => panic!("expected FinalResult, got {other:?}"),
         }

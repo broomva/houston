@@ -75,16 +75,25 @@ impl std::fmt::Display for ClaudeInstallError {
                 write!(f, "Anthropic's download server returned HTTP {status}.")
             }
             Self::ChecksumMismatch { detail } => {
-                write!(f, "Downloaded Claude Code failed checksum verification ({detail}).")
+                write!(
+                    f,
+                    "Downloaded Claude Code failed checksum verification ({detail})."
+                )
             }
             Self::PlatformUnsupported { platform } => {
-                write!(f, "No Claude Code download is pinned for platform '{platform}'.")
+                write!(
+                    f,
+                    "No Claude Code download is pinned for platform '{platform}'."
+                )
             }
             Self::WriteFailed { detail } => {
                 write!(f, "Failed to write Claude Code to disk: {detail}")
             }
             Self::ManifestMissing => {
-                write!(f, "cli-deps.json manifest not available; install the pinned manifest first.")
+                write!(
+                    f,
+                    "cli-deps.json manifest not available; install the pinned manifest first."
+                )
             }
             Self::ManifestEntryMissing => write!(f, "cli-deps.json has no 'claude-code' entry."),
             Self::Unknown { detail } => write!(f, "Claude Code install failed: {detail}"),
@@ -239,7 +248,6 @@ pub enum HoustonEvent {
     //     and the CLI polls + completes on its own (no paste-back).
     // These events surface the URL (and, for device-grant, the code) to
     // the UI.
-
     /// A provider's OAuth login subprocess produced a sign-in URL.
     /// Frontend should display it (and optionally `window.open` it).
     ///

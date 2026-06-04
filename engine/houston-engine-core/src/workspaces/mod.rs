@@ -225,7 +225,13 @@ mod tests {
     #[test]
     fn set_locale_roundtrip_and_clear() {
         let d = tmp();
-        let ws = create(d.path(), CreateWorkspace { name: "alpha".into() }).unwrap();
+        let ws = create(
+            d.path(),
+            CreateWorkspace {
+                name: "alpha".into(),
+            },
+        )
+        .unwrap();
         assert!(ws.locale.is_none(), "new workspace has no locale override");
 
         let updated = set_locale(d.path(), &ws.id, Some("es".into())).unwrap();
@@ -254,12 +260,20 @@ mod tests {
     #[test]
     fn locale_survives_rename() {
         let d = tmp();
-        let ws = create(d.path(), CreateWorkspace { name: "alpha".into() }).unwrap();
+        let ws = create(
+            d.path(),
+            CreateWorkspace {
+                name: "alpha".into(),
+            },
+        )
+        .unwrap();
         set_locale(d.path(), &ws.id, Some("pt".into())).unwrap();
         rename(
             d.path(),
             &ws.id,
-            RenameWorkspace { new_name: "beta".into() },
+            RenameWorkspace {
+                new_name: "beta".into(),
+            },
         )
         .unwrap();
         let all = list(d.path()).unwrap();
@@ -287,7 +301,13 @@ mod tests {
     #[test]
     fn rename_to_same_name_is_noop() {
         let d = tmp();
-        let ws = create(d.path(), CreateWorkspace { name: "alpha".into() }).unwrap();
+        let ws = create(
+            d.path(),
+            CreateWorkspace {
+                name: "alpha".into(),
+            },
+        )
+        .unwrap();
         let renamed = rename(
             d.path(),
             &ws.id,
@@ -307,7 +327,13 @@ mod tests {
     #[test]
     fn rename_case_only_change() {
         let d = tmp();
-        let ws = create(d.path(), CreateWorkspace { name: "Acme".into() }).unwrap();
+        let ws = create(
+            d.path(),
+            CreateWorkspace {
+                name: "Acme".into(),
+            },
+        )
+        .unwrap();
         let renamed = rename(
             d.path(),
             &ws.id,
@@ -318,7 +344,11 @@ mod tests {
         .unwrap();
         assert_eq!(renamed.name, "ACME");
         let all = list(d.path()).unwrap();
-        assert_eq!(all.len(), 1, "case-only rename must not duplicate workspace");
+        assert_eq!(
+            all.len(),
+            1,
+            "case-only rename must not duplicate workspace"
+        );
         assert_eq!(all[0].name, "ACME");
         assert!(d.path().join("ACME").is_dir());
     }

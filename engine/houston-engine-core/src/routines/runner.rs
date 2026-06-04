@@ -578,8 +578,20 @@ mod tests {
         let events: DynEventSink = Arc::new(NoopEventSink);
 
         let (ra, rb) = tokio::join!(
-            run_routine(events.clone(), dispatcher.clone(), surface.clone(), &agent_path, &a.id),
-            run_routine(events.clone(), dispatcher.clone(), surface.clone(), &agent_path, &b.id),
+            run_routine(
+                events.clone(),
+                dispatcher.clone(),
+                surface.clone(),
+                &agent_path,
+                &a.id
+            ),
+            run_routine(
+                events.clone(),
+                dispatcher.clone(),
+                surface.clone(),
+                &agent_path,
+                &b.id
+            ),
         );
         ra.unwrap();
         rb.unwrap();
@@ -589,7 +601,9 @@ mod tests {
         assert!(
             runs.iter().all(|r| r.status == "silent"),
             "both runs reached a terminal status: {:?}",
-            runs.iter().map(|r| (&r.routine_id, &r.status)).collect::<Vec<_>>()
+            runs.iter()
+                .map(|r| (&r.routine_id, &r.status))
+                .collect::<Vec<_>>()
         );
         // One run per routine id.
         assert!(runs.iter().any(|r| r.routine_id == a.id));
@@ -638,15 +652,30 @@ mod tests {
         let events: DynEventSink = Arc::new(NoopEventSink);
 
         let (ra, rb) = tokio::join!(
-            run_routine(events.clone(), dispatcher.clone(), surface.clone(), &agent_path, &a.id),
-            run_routine(events.clone(), dispatcher.clone(), surface.clone(), &agent_path, &b.id),
+            run_routine(
+                events.clone(),
+                dispatcher.clone(),
+                surface.clone(),
+                &agent_path,
+                &a.id
+            ),
+            run_routine(
+                events.clone(),
+                dispatcher.clone(),
+                surface.clone(),
+                &agent_path,
+                &b.id
+            ),
         );
         ra.unwrap();
         rb.unwrap();
 
         let runs = routine_runs::list(d.path()).unwrap();
         assert_eq!(runs.len(), 2, "both routines ran");
-        assert!(runs.iter().all(|r| r.status == "silent"), "both reached terminal");
+        assert!(
+            runs.iter().all(|r| r.status == "silent"),
+            "both reached terminal"
+        );
         assert_eq!(
             peak.load(Ordering::SeqCst),
             1,

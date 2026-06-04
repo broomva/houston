@@ -501,7 +501,12 @@ mod tests {
         let openai = Provider::from_str("openai").unwrap();
         assert_eq!(
             openai.device_login_args().map(|a| a.to_vec()),
-            Some(vec!["login", "--device-auth", "-c", "model_reasoning_effort=high"])
+            Some(vec![
+                "login",
+                "--device-auth",
+                "-c",
+                "model_reasoning_effort=high"
+            ])
         );
         assert!(Provider::from_str("anthropic")
             .unwrap()

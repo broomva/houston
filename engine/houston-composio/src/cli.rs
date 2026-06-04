@@ -203,7 +203,11 @@ pub async fn logout() -> Result<(), String> {
         return Err(format!(
             "composio logout failed (exit {}): {}",
             output.status,
-            if stderr.is_empty() { "<no stderr>" } else { &stderr }
+            if stderr.is_empty() {
+                "<no stderr>"
+            } else {
+                &stderr
+            }
         ));
     }
     Ok(())

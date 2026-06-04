@@ -284,10 +284,8 @@ pub fn migrate_agent_data(agent_root: &Path) -> Result<()> {
 /// `"opus"` → 4.7 is deliberate: it preserves the exact model existing users
 /// were implicitly running rather than silently bumping them to the new
 /// flagship (they can opt into 4.8 from the picker).
-const LEGACY_MODEL_ALIASES: &[(&str, &str)] = &[
-    ("opus", "claude-opus-4-7"),
-    ("sonnet", "claude-sonnet-4-6"),
-];
+const LEGACY_MODEL_ALIASES: &[(&str, &str)] =
+    &[("opus", "claude-opus-4-7"), ("sonnet", "claude-sonnet-4-6")];
 
 /// Rewrite a legacy Claude model alias in `.houston/config/config.json` to its
 /// explicit version ID. Idempotent: explicit IDs and unknown values pass
@@ -462,8 +460,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         write_config(dir.path(), "not json at all");
         migrate_config_model_aliases(dir.path()).unwrap();
-        let raw =
-            fs::read_to_string(dir.path().join(".houston/config/config.json")).unwrap();
+        let raw = fs::read_to_string(dir.path().join(".houston/config/config.json")).unwrap();
         assert_eq!(raw, "not json at all");
     }
 
@@ -654,7 +651,10 @@ mod tests {
         migrate_agent_data(dir.path()).unwrap();
 
         let flat = fs::read_to_string(dir.path().join(".houston/config.json")).unwrap();
-        assert!(flat.contains("opus"), "flat config must stay as a rollback net: {flat}");
+        assert!(
+            flat.contains("opus"),
+            "flat config must stay as a rollback net: {flat}"
+        );
     }
 
     #[test]

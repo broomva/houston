@@ -170,7 +170,9 @@ fn read_codex_auth_file(home: &str) -> ProviderAuthState {
 /// but there `claude auth status` answers cleanly, so this file fallback is
 /// only reached on the rare CLI timeout/error path.
 fn read_claude_auth_file(home: &str) -> ProviderAuthState {
-    let auth_path = PathBuf::from(home).join(".claude").join(".credentials.json");
+    let auth_path = PathBuf::from(home)
+        .join(".claude")
+        .join(".credentials.json");
     match std::fs::read_to_string(&auth_path) {
         Ok(content) => classify_claude_credentials_json(&content),
         Err(_) => ProviderAuthState::Unauthenticated,

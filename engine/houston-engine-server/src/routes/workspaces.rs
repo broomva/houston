@@ -19,10 +19,7 @@ pub fn router() -> Router<Arc<ServerState>> {
         .route("/workspaces/:id", delete(remove))
         .route("/workspaces/:id/rename", post(rename))
         .route("/workspaces/:id/locale", patch(set_locale))
-        .route(
-            "/workspaces/:id/context",
-            get(get_context).put(put_context),
-        )
+        .route("/workspaces/:id/context", get(get_context).put(put_context))
         // Workspace-scoped agents CRUD.
         .route(
             "/workspaces/:id/agents",

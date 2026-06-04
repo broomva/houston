@@ -613,7 +613,10 @@ mod tests {
                 .is_none()
         );
         // The code line yields the code.
-        assert_eq!(extract_device_user_code("   ABCD-EFGHI").unwrap(), "ABCD-EFGHI");
+        assert_eq!(
+            extract_device_user_code("   ABCD-EFGHI").unwrap(),
+            "ABCD-EFGHI"
+        );
     }
 
     #[test]
@@ -625,7 +628,7 @@ mod tests {
         assert!(extract_device_user_code("using device code authorization:").is_none());
         assert!(extract_device_user_code("HELLO").is_none()); // single group, no hyphen
         assert!(extract_device_user_code("abcd-efghi").is_none()); // lowercase
-        // Some device codes chunk into three groups — still one token.
+                                                                   // Some device codes chunk into three groups — still one token.
         assert_eq!(
             extract_device_user_code("code: WDJB-MJHT-1234 now").unwrap(),
             "WDJB-MJHT-1234"
@@ -635,7 +638,10 @@ mod tests {
     #[test]
     fn strip_ansi_removes_sgr_colour_codes() {
         // Verbatim wrappers from codex 0.133 stdout.
-        assert_eq!(strip_ansi("   \u{1b}[94mRH7H-TS5DE\u{1b}[0m"), "   RH7H-TS5DE");
+        assert_eq!(
+            strip_ansi("   \u{1b}[94mRH7H-TS5DE\u{1b}[0m"),
+            "   RH7H-TS5DE"
+        );
         assert_eq!(
             strip_ansi("\u{1b}[90mOpenAI's command-line coding agent\u{1b}[0m"),
             "OpenAI's command-line coding agent"
@@ -643,7 +649,10 @@ mod tests {
         // Multi-parameter SGR (`\x1b[31;1m`) is stripped too.
         assert_eq!(strip_ansi("\u{1b}[31;1mError\u{1b}[0m"), "Error");
         // A clean line is returned untouched (borrowed, not reallocated).
-        assert!(matches!(strip_ansi("plain line"), std::borrow::Cow::Borrowed("plain line")));
+        assert!(matches!(
+            strip_ansi("plain line"),
+            std::borrow::Cow::Borrowed("plain line")
+        ));
     }
 
     #[test]

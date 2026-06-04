@@ -187,14 +187,10 @@ impl AgentScheduler {
                     // The previous run of THIS routine is still in flight when
                     // the next tick landed — expected dedup, not an error.
                     Err(crate::CoreError::Conflict(msg)) => {
-                        tracing::info!(
-                            "[routines] skipped cron fire for {routine_id}: {msg}"
-                        );
+                        tracing::info!("[routines] skipped cron fire for {routine_id}: {msg}");
                     }
                     Err(e) => {
-                        tracing::error!(
-                            "[routines] Error running routine {routine_id}: {e}"
-                        );
+                        tracing::error!("[routines] Error running routine {routine_id}: {e}");
                     }
                 }
             }

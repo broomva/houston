@@ -91,9 +91,7 @@ pub async fn ensure_and_upgrade(sink: DynEventSink, db: Database) {
     // behavior they'd hit in a packaged release. Production always finds
     // the bundled copy.
     let Some(manifest) = resolve_manifest() else {
-        tracing::warn!(
-            "[claude-installer] no cli-deps.json available — skipping auto-install"
-        );
+        tracing::warn!("[claude-installer] no cli-deps.json available — skipping auto-install");
         sink.emit(HoustonEvent::ClaudeCliReady);
         return;
     };
@@ -110,7 +108,9 @@ pub async fn ensure_and_upgrade(sink: DynEventSink, db: Database) {
     if entry.bundled {
         // Defensive — shouldn't be possible without a license change.
         // Treat the bundled binary as authoritative if it's there.
-        tracing::info!("[claude-installer] manifest reports claude-code as bundled; trusting bundle");
+        tracing::info!(
+            "[claude-installer] manifest reports claude-code as bundled; trusting bundle"
+        );
         sink.emit(HoustonEvent::ClaudeCliReady);
         return;
     }
@@ -137,7 +137,11 @@ pub async fn ensure_and_upgrade(sink: DynEventSink, db: Database) {
     tracing::info!(
         "[claude-installer] installing claude-code v{} ({} → {})",
         pinned_version,
-        if last_version.is_empty() { "none" } else { &last_version },
+        if last_version.is_empty() {
+            "none"
+        } else {
+            &last_version
+        },
         pinned_version
     );
 
@@ -165,7 +169,10 @@ pub async fn finalize_install(
     match result {
         Ok(path) => {
             tracing::info!("[claude-installer] installed at {}", path.display());
-            if let Err(e) = db.set_preference(PREF_INSTALLED_VERSION, pinned_version).await {
+            if let Err(e) = db
+                .set_preference(PREF_INSTALLED_VERSION, pinned_version)
+                .await
+            {
                 tracing::warn!("[claude-installer] failed to persist version marker: {e}");
             }
             // Clear the last-error marker so the UI stops surfacing a
@@ -276,7 +283,10 @@ pub async fn install_to(
     tokio::fs::create_dir_all(install_dir)
         .await
         .map_err(|e| ClaudeInstallError::WriteFailed {
-            detail: format!("failed to create install dir {}: {e}", install_dir.display()),
+            detail: format!(
+                "failed to create install dir {}: {e}",
+                install_dir.display()
+            ),
         })?;
 
     let final_path = install_dir.join(binary_name);
@@ -312,11 +322,12 @@ pub async fn install_to(
     let mut downloaded: u64 = 0;
     let mut last_pct_emitted: u8 = 0;
 
-    let mut tmp_file = tokio::fs::File::create(&tmp_path)
-        .await
-        .map_err(|e| ClaudeInstallError::WriteFailed {
-            detail: format!("failed to open temp file {}: {e}", tmp_path.display()),
-        })?;
+    let mut tmp_file =
+        tokio::fs::File::create(&tmp_path)
+            .await
+            .map_err(|e| ClaudeInstallError::WriteFailed {
+                detail: format!("failed to open temp file {}: {e}", tmp_path.display()),
+            })?;
 
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|e| classify_reqwest_error(&e))?;
@@ -362,7 +373,9 @@ pub async fn install_to(
         // The localized user copy comes from the `kind`; the expected /
         // actual digests ride along in `detail` for the bug report.
         return Err(ClaudeInstallError::ChecksumMismatch {
-            detail: format!("checksum mismatch: expected {expected_checksum}, got {actual_checksum}"),
+            detail: format!(
+                "checksum mismatch: expected {expected_checksum}, got {actual_checksum}"
+            ),
         });
     }
 
@@ -372,8 +385,10 @@ pub async fn install_to(
     {
         use std::os::unix::fs::PermissionsExt;
         let perms = std::fs::Permissions::from_mode(0o755);
-        std::fs::set_permissions(&tmp_path, perms).map_err(|e| ClaudeInstallError::WriteFailed {
-            detail: format!("failed to chmod +x: {e}"),
+        std::fs::set_permissions(&tmp_path, perms).map_err(|e| {
+            ClaudeInstallError::WriteFailed {
+                detail: format!("failed to chmod +x: {e}"),
+            }
         })?;
     }
 
@@ -461,7 +476,12 @@ mod tests {
     fn cli_path_is_under_install_dir() {
         let cli = cli_path();
         let dir = install_dir();
-        assert!(cli.starts_with(&dir), "{} not under {}", cli.display(), dir.display());
+        assert!(
+            cli.starts_with(&dir),
+            "{} not under {}",
+            cli.display(),
+            dir.display()
+        );
     }
 
     /// Build a `CliEntry` parsed from a JSON document whose URL points
@@ -716,8 +736,7 @@ mod tests {
         let original = ClaudeInstallError::ChecksumMismatch {
             detail: "expected a, got b".into(),
         };
-        let restored: ClaudeInstallError =
-            serde_json::from_str(&original.to_pref_json()).unwrap();
+        let restored: ClaudeInstallError = serde_json::from_str(&original.to_pref_json()).unwrap();
         assert_eq!(restored, original);
     }
 }

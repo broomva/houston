@@ -138,9 +138,7 @@ pub(crate) async fn run_cli_process(
             // silently without the user seeing a flicker of "claude hit
             // a runtime error".
             if stdout_report.saw_resume_corrupted {
-                tracing::warn!(
-                    "[houston:session] claude failed with corrupted-resume signature"
-                );
+                tracing::warn!("[houston:session] claude failed with corrupted-resume signature");
                 CliRunOutcome::ClaudeResumeCorrupted
             } else if malformed_provider_json {
                 tracing::warn!("[houston:session] claude failed with malformed provider JSON");

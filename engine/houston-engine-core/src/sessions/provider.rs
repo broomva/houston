@@ -213,16 +213,25 @@ mod tests {
     #[test]
     fn effort_falls_back_to_default_when_unset_or_garbage() {
         let (_d, agent) = agent_with(r#"{"provider":"anthropic"}"#);
-        assert_eq!(resolve_effort(&agent, anthropic()).as_deref(), Some("medium"));
+        assert_eq!(
+            resolve_effort(&agent, anthropic()).as_deref(),
+            Some("medium")
+        );
 
         let (_d2, agent2) = agent_with(r#"{"effort":"ultra"}"#);
-        assert_eq!(resolve_effort(&agent2, anthropic()).as_deref(), Some("medium"));
+        assert_eq!(
+            resolve_effort(&agent2, anthropic()).as_deref(),
+            Some("medium")
+        );
     }
 
     #[test]
     fn effort_reads_claude_effort_alias() {
         let (_d, agent) = agent_with(r#"{"claude_effort":"xhigh"}"#);
-        assert_eq!(resolve_effort(&agent, anthropic()).as_deref(), Some("xhigh"));
+        assert_eq!(
+            resolve_effort(&agent, anthropic()).as_deref(),
+            Some("xhigh")
+        );
     }
 
     #[test]
@@ -237,6 +246,9 @@ mod tests {
         let d = TempDir::new().unwrap();
         let agent = d.path().join("ws").join("agent");
         std::fs::create_dir_all(&agent).unwrap();
-        assert_eq!(resolve_effort(&agent, anthropic()).as_deref(), Some("medium"));
+        assert_eq!(
+            resolve_effort(&agent, anthropic()).as_deref(),
+            Some("medium")
+        );
     }
 }

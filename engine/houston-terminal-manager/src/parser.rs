@@ -311,7 +311,8 @@ fn parse_system_event(subtype: Option<&str>, extra: &serde_json::Value) -> Vec<F
 /// Read a JSON value as a `u64`, tolerating a numeric string (some Claude
 /// telemetry paths stringify token counts).
 fn json_u64(v: &serde_json::Value) -> Option<u64> {
-    v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+    v.as_u64()
+        .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
 }
 
 fn parse_assistant_event(
@@ -493,7 +494,8 @@ mod tests {
     fn parse_compact_boundary_tolerates_missing_metadata() {
         // A future/variant shape without compact_metadata still produces the
         // marker (pre_tokens unknown) rather than crashing or going silent.
-        let line = r#"{"type":"system","subtype":"compact_boundary","session_id":"s1","uuid":"u1"}"#;
+        let line =
+            r#"{"type":"system","subtype":"compact_boundary","session_id":"s1","uuid":"u1"}"#;
         let items = parse_event(line, &mut acc());
         assert_eq!(items.len(), 1);
         assert!(matches!(
@@ -841,11 +843,9 @@ mod tests {
         let second = r#"{"type":"assistant","message":{"content":[{"type":"text","text":"done"}],"usage":{"input_tokens":50,"cache_read_input_tokens":2000,"output_tokens":80}}}"#;
         let _ = parse_event(first, &mut a);
         let _ = parse_event(second, &mut a);
-        let usage = final_result_usage(&parse_event(
-            r#"{"type":"result","result":"Done"}"#,
-            &mut a,
-        ))
-        .expect("usage present");
+        let usage =
+            final_result_usage(&parse_event(r#"{"type":"result","result":"Done"}"#, &mut a))
+                .expect("usage present");
         assert_eq!(usage.context_tokens, 50 + 2000);
     }
 
@@ -854,8 +854,8 @@ mod tests {
         // No assistant message this turn — fall back to the terminal event's
         // own usage block so the indicator still updates.
         let line = r#"{"type":"result","result":"Done","usage":{"input_tokens":10,"cache_read_input_tokens":90000,"output_tokens":50}}"#;
-        let usage = final_result_usage(&parse_event(line, &mut acc()))
-            .expect("usage from result event");
+        let usage =
+            final_result_usage(&parse_event(line, &mut acc())).expect("usage from result event");
         assert_eq!(usage.context_tokens, 10 + 90_000);
         assert_eq!(usage.cached_tokens, 90_000);
         assert_eq!(usage.output_tokens, 50);

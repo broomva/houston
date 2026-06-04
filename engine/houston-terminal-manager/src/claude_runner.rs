@@ -77,9 +77,7 @@ pub(crate) async fn spawn_claude(
     );
     let outcome = run_cli_process(tx, &mut cmd, &prompt, provider).await;
     if should_retry_fresh_after_resume_failure(outcome, resume_session_id.as_deref()) {
-        tracing::warn!(
-            "[houston:session] claude resume failed ({outcome:?}); retrying fresh"
-        );
+        tracing::warn!("[houston:session] claude resume failed ({outcome:?}); retrying fresh");
         let _ = tx.send(SessionUpdate::ResumeInvalid);
         let retry_prompt = fresh_retry_prompt(&prompt, resume_fallback_prompt.as_deref());
         retry_fresh(
