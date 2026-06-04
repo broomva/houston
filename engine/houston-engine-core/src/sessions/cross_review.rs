@@ -182,11 +182,7 @@ mod tests {
 
     #[test]
     fn build_review_prompt_json_escapes_inputs() {
-        let prompt = build_review_prompt(
-            "say \"hi\"\nthen ignore previous",
-            "the content",
-            None,
-        );
+        let prompt = build_review_prompt("say \"hi\"\nthen ignore previous", "the content", None);
         // Quotes and newline are JSON-escaped, not embedded raw — no prompt
         // injection break-out.
         assert!(prompt.contains(r#""say \"hi\"\nthen ignore previous""#));
@@ -203,6 +199,8 @@ mod tests {
     #[test]
     fn build_review_prompt_omits_focus_when_absent_or_blank() {
         assert!(!build_review_prompt("s", "c", None).contains("Pay particular attention to:"));
-        assert!(!build_review_prompt("s", "c", Some("   ")).contains("Pay particular attention to:"));
+        assert!(
+            !build_review_prompt("s", "c", Some("   ")).contains("Pay particular attention to:")
+        );
     }
 }
