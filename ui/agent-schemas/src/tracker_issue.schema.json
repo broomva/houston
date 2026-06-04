@@ -1,67 +1,112 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "TrackerIssue",
-  "description": "Atomic work unit projected from the tracker. Linear Issue; Jira Issue; GitHub Issue; Asana Task. Provider-native state captured verbatim; `state_type` is Linear's typed category and only populated when provider declares it.",
+  "description": "Atomic work unit projected from the tracker. Linear Issue; Jira Issue; GitHub Issue; Asana Task. Provider-native state captured verbatim; `stateType` is Linear's typed category and only populated when the provider declares it. Serialized as camelCase to match `houston-engine-protocol::TrackerIssue` and the TS `TrackerIssue` type. The second `oneOf` branch accepts the legacy snake_case shape that pre-fix builds wrote to `issues.json`; it is transitional and droppable once existing mirrors re-sync to camelCase.",
   "type": "array",
   "items": {
-    "type": "object",
-    "required": [
-      "provider",
-      "provider_id",
-      "identifier",
-      "title",
-      "state",
-      "team_id",
-      "created_at",
-      "updated_at"
-    ],
-    "properties": {
-      "provider": { "type": "string", "enum": ["linear"] },
-      "provider_id": { "type": "string" },
-      "identifier": {
-        "type": "string",
-        "description": "Human-readable identifier (Linear: 'ENG-123'; Jira: 'PROJ-45'; GitHub: '#123')."
-      },
-      "title": { "type": "string" },
-      "description": { "type": ["string", "null"] },
-      "state": {
-        "type": "string",
-        "description": "Provider-native state name (e.g. 'In Progress', 'Done', 'Triage')."
-      },
-      "state_type": {
-        "type": ["string", "null"],
-        "enum": [null, "triage", "backlog", "unstarted", "started", "completed", "canceled"],
-        "description": "Linear's typed state category. Null on providers that do not expose typed states (GitHub, Trello)."
-      },
-      "priority": {
-        "type": ["integer", "null"],
-        "minimum": 0,
-        "maximum": 4,
-        "description": "Linear priority: 0=none, 1=urgent, 2=high, 3=medium, 4=low."
-      },
-      "estimate": { "type": ["number", "null"] },
-      "team_id": { "type": "string" },
-      "project_id": { "type": ["string", "null"] },
-      "project_milestone_id": { "type": ["string", "null"] },
-      "cycle_id": { "type": ["string", "null"] },
-      "parent_id": {
-        "type": ["string", "null"],
-        "description": "Sub-issue parent reference."
-      },
-      "assignee_id": {
-        "type": ["string", "null"],
-        "description": "Provider-side assignee UUID (human user, or Houston AppUser when delegated)."
-      },
-      "assigned_houston_agent_id": {
-        "type": ["string", "null"],
-        "description": "Houston-side overlay — which Houston agent path this issue is routed to (per routing.json policy). Not synced to provider."
-      },
-      "label_ids": { "type": "array", "items": { "type": "string" }, "default": [] },
-      "url": { "type": ["string", "null"], "format": "uri" },
-      "created_at": { "type": "string", "format": "date-time" },
-      "updated_at": { "type": "string", "format": "date-time" },
-      "completed_at": { "type": ["string", "null"], "format": "date-time" }
+    "oneOf": [
+      { "$ref": "#/definitions/camelCaseIssue" },
+      { "$ref": "#/definitions/snakeCaseIssue" }
+    ]
+  },
+  "definitions": {
+    "provider": { "type": "string", "enum": ["linear"] },
+    "uuid": { "type": "string" },
+    "nullableUuid": { "type": ["string", "null"] },
+    "identifier": {
+      "type": "string",
+      "description": "Human-readable identifier (Linear: 'ENG-123'; Jira: 'PROJ-45'; GitHub: '#123')."
     },
-    "additionalProperties": false
+    "title": { "type": "string" },
+    "nullableString": { "type": ["string", "null"] },
+    "state": {
+      "type": "string",
+      "description": "Provider-native state name (e.g. 'In Progress', 'Done', 'Triage')."
+    },
+    "stateType": {
+      "type": ["string", "null"],
+      "enum": [null, "triage", "backlog", "unstarted", "started", "completed", "canceled"],
+      "description": "Linear's typed state category. Null on providers that do not expose typed states (GitHub, Trello)."
+    },
+    "priority": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "maximum": 4,
+      "description": "Linear priority: 0=none, 1=urgent, 2=high, 3=medium, 4=low."
+    },
+    "estimate": { "type": ["number", "null"] },
+    "parentId": {
+      "type": ["string", "null"],
+      "description": "Sub-issue parent reference."
+    },
+    "assigneeId": {
+      "type": ["string", "null"],
+      "description": "Provider-side assignee UUID (human user, or Houston AppUser when delegated)."
+    },
+    "assignedHoustonAgentId": {
+      "type": ["string", "null"],
+      "description": "Houston-side overlay, which Houston agent path this issue is routed to (per routing.json policy). Not synced to the provider."
+    },
+    "labelIds": { "type": "array", "items": { "type": "string" }, "default": [] },
+    "url": { "type": ["string", "null"], "format": "uri" },
+    "dateTime": { "type": "string", "format": "date-time" },
+    "nullableDateTime": { "type": ["string", "null"], "format": "date-time" },
+    "camelCaseIssue": {
+      "type": "object",
+      "required": ["provider", "providerId", "identifier", "title", "state", "teamId", "createdAt", "updatedAt"],
+      "properties": {
+        "provider": { "$ref": "#/definitions/provider" },
+        "providerId": { "$ref": "#/definitions/uuid" },
+        "identifier": { "$ref": "#/definitions/identifier" },
+        "title": { "$ref": "#/definitions/title" },
+        "description": { "$ref": "#/definitions/nullableString" },
+        "state": { "$ref": "#/definitions/state" },
+        "stateType": { "$ref": "#/definitions/stateType" },
+        "priority": { "$ref": "#/definitions/priority" },
+        "estimate": { "$ref": "#/definitions/estimate" },
+        "teamId": { "$ref": "#/definitions/uuid" },
+        "projectId": { "$ref": "#/definitions/nullableUuid" },
+        "projectMilestoneId": { "$ref": "#/definitions/nullableUuid" },
+        "cycleId": { "$ref": "#/definitions/nullableUuid" },
+        "parentId": { "$ref": "#/definitions/parentId" },
+        "assigneeId": { "$ref": "#/definitions/assigneeId" },
+        "assignedHoustonAgentId": { "$ref": "#/definitions/assignedHoustonAgentId" },
+        "labelIds": { "$ref": "#/definitions/labelIds" },
+        "url": { "$ref": "#/definitions/url" },
+        "createdAt": { "$ref": "#/definitions/dateTime" },
+        "updatedAt": { "$ref": "#/definitions/dateTime" },
+        "completedAt": { "$ref": "#/definitions/nullableDateTime" }
+      },
+      "additionalProperties": false
+    },
+    "snakeCaseIssue": {
+      "description": "Legacy on-disk shape written by builds before the camelCase fix. Transitional, accepted on read via serde aliases; removed once mirrors re-sync.",
+      "type": "object",
+      "required": ["provider", "provider_id", "identifier", "title", "state", "team_id", "created_at", "updated_at"],
+      "properties": {
+        "provider": { "$ref": "#/definitions/provider" },
+        "provider_id": { "$ref": "#/definitions/uuid" },
+        "identifier": { "$ref": "#/definitions/identifier" },
+        "title": { "$ref": "#/definitions/title" },
+        "description": { "$ref": "#/definitions/nullableString" },
+        "state": { "$ref": "#/definitions/state" },
+        "state_type": { "$ref": "#/definitions/stateType" },
+        "priority": { "$ref": "#/definitions/priority" },
+        "estimate": { "$ref": "#/definitions/estimate" },
+        "team_id": { "$ref": "#/definitions/uuid" },
+        "project_id": { "$ref": "#/definitions/nullableUuid" },
+        "project_milestone_id": { "$ref": "#/definitions/nullableUuid" },
+        "cycle_id": { "$ref": "#/definitions/nullableUuid" },
+        "parent_id": { "$ref": "#/definitions/parentId" },
+        "assignee_id": { "$ref": "#/definitions/assigneeId" },
+        "assigned_houston_agent_id": { "$ref": "#/definitions/assignedHoustonAgentId" },
+        "label_ids": { "$ref": "#/definitions/labelIds" },
+        "url": { "$ref": "#/definitions/url" },
+        "created_at": { "$ref": "#/definitions/dateTime" },
+        "updated_at": { "$ref": "#/definitions/dateTime" },
+        "completed_at": { "$ref": "#/definitions/nullableDateTime" }
+      },
+      "additionalProperties": false
+    }
   }
 }

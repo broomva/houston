@@ -228,12 +228,23 @@ pub enum TrackerConnectionState {
 /// used by both the engine route response AND the on-disk persistence
 /// in `engine/houston-linear/src/models.rs`.
 ///
+/// Serialized as **camelCase** to match the TS `TrackerIssue` in
+/// `ui/engine-client/src/types.ts` and the rest of the tracker DTOs.
+/// (Before this fix it was `snake_case`, so the frontend read every
+/// `stateType` as `undefined` and dumped all issues into the "To do"
+/// column.) Each multi-word field also accepts its legacy `snake_case`
+/// spelling via `#[serde(alias = ...)]` so `issues.json` files written
+/// by pre-fix builds still deserialize; the first reconcile after
+/// upgrade rewrites them to camelCase. The aliases are transitional —
+/// droppable in a follow-up once existing mirrors have re-synced.
+///
 /// `Eq` intentionally omitted — `estimate: Option<f64>` makes Eq invalid
 /// (NaN != NaN). PartialEq is enough for tests and dedupe.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub struct TrackerIssue {
     pub provider: String,
+    #[serde(alias = "provider_id")]
     pub provider_id: String,
     pub identifier: String,
     pub title: String,
@@ -242,24 +253,35 @@ pub struct TrackerIssue {
     /// Provider-native state category (Linear's WorkflowStateType:
     /// triage/backlog/unstarted/started/completed/canceled). Null on
     /// providers without typed state categories.
+    #[serde(alias = "state_type")]
     pub state_type: Option<String>,
     pub priority: Option<i64>,
     pub estimate: Option<f64>,
+    #[serde(alias = "team_id")]
     pub team_id: String,
+    #[serde(alias = "project_id")]
     pub project_id: Option<String>,
+    #[serde(alias = "project_milestone_id")]
     pub project_milestone_id: Option<String>,
+    #[serde(alias = "cycle_id")]
     pub cycle_id: Option<String>,
+    #[serde(alias = "parent_id")]
     pub parent_id: Option<String>,
+    #[serde(alias = "assignee_id")]
     pub assignee_id: Option<String>,
     /// Houston-side overlay — which Houston agent path this issue is
     /// routed to per the workspace's routing.json policy. Not synced
     /// to the provider.
+    #[serde(alias = "assigned_houston_agent_id")]
     pub assigned_houston_agent_id: Option<String>,
-    #[serde(default)]
+    #[serde(default, alias = "label_ids")]
     pub label_ids: Vec<String>,
     pub url: Option<String>,
+    #[serde(alias = "created_at")]
     pub created_at: String,
+    #[serde(alias = "updated_at")]
     pub updated_at: String,
+    #[serde(alias = "completed_at")]
     pub completed_at: Option<String>,
 }
 
@@ -298,12 +320,28 @@ pub struct TrackerConnectionList {
 
 /// Response from `POST /v1/trackers/:provider/sync` — outcome of a
 /// reconcile invocation.
+///
+/// Variant fields serialize as **camelCase** (`issuesSeen`,
+/// `pagesFetched`, `cursorAdvancedTo`) to match the TS
+/// `TrackerReconcileResponse` union in `ui/engine-client/src/types.ts`
+/// and the rest of the tracker DTOs — `rename_all` on an enum only
+/// renames the variant tags, so `rename_all_fields` is what camelCases
+/// the struct-variant fields. Legacy `snake_case` field spellings still
+/// deserialize via `#[serde(alias = ...)]` (transitional, droppable in a
+/// follow-up). The `kind` tag values stay `synced` / `skipped`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case", tag = "kind")]
+#[serde(
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    tag = "kind"
+)]
 pub enum TrackerReconcileResponse {
     Synced {
+        #[serde(alias = "issues_seen")]
         issues_seen: usize,
+        #[serde(alias = "pages_fetched")]
         pages_fetched: usize,
+        #[serde(alias = "cursor_advanced_to")]
         cursor_advanced_to: Option<String>,
     },
     Skipped {
@@ -482,5 +520,125 @@ mod tests {
             "x".into()
         )));
         assert!(!is_low_severity_feed(&FeedItem::AssistantText("x".into())));
+    }
+
+    #[test]
+    fn tracker_issue_serializes_camel_and_deserializes_either() {
+        let issue = TrackerIssue {
+            provider: "linear".into(),
+            provider_id: "uuid-1".into(),
+            identifier: "ENG-1".into(),
+            title: "Fix kanban".into(),
+            description: Some("desc".into()),
+            state: "Done".into(),
+            state_type: Some("completed".into()),
+            priority: Some(2),
+            estimate: Some(3.0),
+            team_id: "team-1".into(),
+            project_id: Some("proj-1".into()),
+            project_milestone_id: None,
+            cycle_id: None,
+            parent_id: None,
+            assignee_id: Some("user-1".into()),
+            assigned_houston_agent_id: Some("/Workspace/Agent".into()),
+            label_ids: vec!["lbl-1".into()],
+            url: Some("https://linear.app/x".into()),
+            created_at: "2026-05-01T00:00:00Z".into(),
+            updated_at: "2026-05-02T00:00:00Z".into(),
+            completed_at: Some("2026-05-02T00:00:00Z".into()),
+        };
+
+        // Output is camelCase, matching the TS type + sibling tracker DTOs.
+        let json = serde_json::to_string(&issue).unwrap();
+        for key in [
+            "\"providerId\"",
+            "\"stateType\"",
+            "\"teamId\"",
+            "\"assignedHoustonAgentId\"",
+            "\"labelIds\"",
+            "\"createdAt\"",
+        ] {
+            assert!(json.contains(key), "missing {key} in {json}");
+        }
+        // No snake_case leakage — the exact regression that stacked every
+        // issue in the "To do" column.
+        for key in [
+            "\"provider_id\"",
+            "\"state_type\"",
+            "\"assigned_houston_agent_id\"",
+        ] {
+            assert!(!json.contains(key), "snake_case leaked: {key}");
+        }
+        // Round-trips through its own camelCase output.
+        assert_eq!(serde_json::from_str::<TrackerIssue>(&json).unwrap(), issue);
+
+        // Legacy snake_case `issues.json` written by pre-fix builds still
+        // deserializes (the `#[serde(alias)]` backward-compat path).
+        let snake = r#"{
+            "provider":"linear","provider_id":"uuid-1","identifier":"ENG-1",
+            "title":"Fix kanban","state":"Done","state_type":"completed",
+            "team_id":"team-1","label_ids":["lbl-1"],
+            "created_at":"2026-05-01T00:00:00Z","updated_at":"2026-05-02T00:00:00Z"
+        }"#;
+        let from_snake: TrackerIssue = serde_json::from_str(snake).unwrap();
+        assert_eq!(from_snake.provider_id, "uuid-1");
+        assert_eq!(from_snake.state_type.as_deref(), Some("completed"));
+        assert_eq!(from_snake.team_id, "team-1");
+        assert_eq!(from_snake.label_ids, vec!["lbl-1".to_string()]);
+
+        // Explicit camelCase input parses too.
+        let camel = r#"{
+            "provider":"linear","providerId":"uuid-2","identifier":"ENG-2",
+            "title":"x","state":"Started","stateType":"started",
+            "teamId":"team-2","createdAt":"2026-05-01T00:00:00Z",
+            "updatedAt":"2026-05-02T00:00:00Z"
+        }"#;
+        let from_camel: TrackerIssue = serde_json::from_str(camel).unwrap();
+        assert_eq!(from_camel.provider_id, "uuid-2");
+        assert_eq!(from_camel.state_type.as_deref(), Some("started"));
+    }
+
+    #[test]
+    fn tracker_reconcile_response_serializes_camel_and_deserializes_either() {
+        let synced = TrackerReconcileResponse::Synced {
+            issues_seen: 1232,
+            pages_fetched: 13,
+            cursor_advanced_to: Some("cursor-xyz".into()),
+        };
+        let json = serde_json::to_string(&synced).unwrap();
+        assert!(json.contains("\"kind\":\"synced\""), "tag changed: {json}");
+        for key in ["\"issuesSeen\"", "\"pagesFetched\"", "\"cursorAdvancedTo\""] {
+            assert!(json.contains(key), "missing {key} in {json}");
+        }
+        assert!(
+            !json.contains("\"issues_seen\""),
+            "snake_case leaked: {json}"
+        );
+        assert!(
+            !json.contains("\"pages_fetched\""),
+            "snake_case leaked: {json}"
+        );
+        assert_eq!(
+            serde_json::from_str::<TrackerReconcileResponse>(&json).unwrap(),
+            synced
+        );
+
+        // Legacy snake_case field spellings still deserialize.
+        let snake = r#"{"kind":"synced","issues_seen":1232,"pages_fetched":13,"cursor_advanced_to":"cursor-xyz"}"#;
+        assert_eq!(
+            serde_json::from_str::<TrackerReconcileResponse>(snake).unwrap(),
+            synced
+        );
+
+        // Skipped variant tag stays `skipped` and round-trips.
+        let skipped = TrackerReconcileResponse::Skipped {
+            reason: "no-op".into(),
+        };
+        let s = serde_json::to_string(&skipped).unwrap();
+        assert!(s.contains("\"kind\":\"skipped\""), "tag changed: {s}");
+        assert_eq!(
+            serde_json::from_str::<TrackerReconcileResponse>(&s).unwrap(),
+            skipped
+        );
     }
 }

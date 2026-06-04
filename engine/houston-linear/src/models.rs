@@ -265,12 +265,41 @@ mod tests {
         let p = sample_projected("uuid-1", "2026-05-23T00:00:00Z");
         let json = serde_json::to_value(&p).unwrap();
         assert_eq!(json["provider"], "linear");
-        assert_eq!(json["provider_id"], "uuid-1");
-        assert_eq!(json["state_type"], "started");
+        // camelCase keys — matches the TS TrackerIssue + the wire DTO.
+        assert_eq!(json["providerId"], "uuid-1");
+        assert_eq!(json["stateType"], "started");
         let s = serde_json::to_string(&p).unwrap();
-        assert!(s.contains("\"provider_id\""));
-        assert!(s.contains("\"state_type\""));
-        assert!(s.contains("\"assigned_houston_agent_id\""));
+        assert!(s.contains("\"providerId\""));
+        assert!(s.contains("\"stateType\""));
+        assert!(s.contains("\"assignedHoustonAgentId\""));
+        // No snake_case leakage — the shape the frontend could not read.
+        assert!(!s.contains("\"provider_id\""));
+        assert!(!s.contains("\"state_type\""));
+    }
+
+    #[test]
+    fn load_projection_accepts_legacy_snake_case() {
+        // A pre-fix `issues.json` on disk uses snake_case keys. The serde
+        // aliases on TrackerIssue must still load it — otherwise every
+        // issue deserializes with state_type=None and stacks in "To do".
+        let dir = TempDir::new().unwrap();
+        let path = projection_path(dir.path());
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let legacy = r#"[
+            {
+                "provider":"linear","provider_id":"uuid-legacy","identifier":"ENG-9",
+                "title":"Legacy issue","state":"Done","state_type":"completed",
+                "team_id":"team-1","label_ids":[],
+                "created_at":"2026-05-01T00:00:00Z","updated_at":"2026-05-02T00:00:00Z"
+            }
+        ]"#;
+        std::fs::write(&path, legacy).unwrap();
+
+        let items = load_projection(dir.path()).unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].provider_id, "uuid-legacy");
+        assert_eq!(items[0].state_type.as_deref(), Some("completed"));
+        assert_eq!(items[0].team_id, "team-1");
     }
 
     #[test]
