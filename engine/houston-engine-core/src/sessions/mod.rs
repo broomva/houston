@@ -20,6 +20,7 @@
 pub mod ask_user;
 mod compaction;
 mod control;
+pub mod cross_review;
 pub mod file_changes;
 pub mod generate_instructions;
 pub mod history;

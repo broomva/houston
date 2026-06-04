@@ -82,6 +82,20 @@ array. If you want to ask a question referring to work you did (e.g., a plan \
 you wrote), you must write that work as an assistant message AND end your turn \
 (give them a chance to read and respond) BEFORE using this tool.";
 
+/// Second tool: an independent second opinion on the agent's own work from a
+/// different AI model. The agent calls it as `mcp__houston__request_review`.
+const REVIEW_TOOL_NAME: &str = "request_review";
+
+const REVIEW_TOOL_DESCRIPTION: &str =
+    "Get an independent second opinion on your work from a different AI model before \
+presenting it as final. Use this for substantial, risky, or hard-to-undo work, or \
+anything the user will rely on (a plan, an analysis, a decision, a draft they will act \
+on) — not for trivial replies or quick lookups. Pass a short summary of what you set out \
+to do and the work itself; you get back an adversarial review (a bottom line plus concrete \
+issues). Weigh the feedback, fix real problems, then continue. The review happens behind \
+the scenes — do not expose it to the user as machinery; if it changed the result, mention \
+that in one plain sentence.";
+
 pub fn router() -> Router<Arc<ServerState>> {
     Router::new()
         .route("/mcp/:session_key", post(handle_post).get(handle_get))
@@ -283,6 +297,28 @@ fn handle_tools_list(id: Value) -> Response {
                         },
                         "required": ["questions"]
                     }
+                },
+                {
+                    "name": REVIEW_TOOL_NAME,
+                    "description": REVIEW_TOOL_DESCRIPTION,
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "work_summary": {
+                                "type": "string",
+                                "description": "A short description of what you set out to do."
+                            },
+                            "work_content": {
+                                "type": "string",
+                                "description": "The work to review — the plan, draft, analysis, or change itself."
+                            },
+                            "focus": {
+                                "type": "string",
+                                "description": "Optional. What the reviewer should scrutinize most."
+                            }
+                        },
+                        "required": ["work_summary", "work_content"]
+                    }
                 }
             ]
         }),
@@ -302,19 +338,31 @@ async fn resolve_tools_call(
         .and_then(|v| v.as_str())
         .ok_or_else(|| CoreError::BadRequest("tools/call: missing 'name'".into()))?;
 
-    if name != TOOL_NAME {
-        // Encode "unknown tool" as a JSON-RPC error wrapped in a Value so
-        // the caller can choose how to deliver it (plain JSON vs SSE).
-        return Ok(json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "error": {
-                "code": ERR_METHOD_NOT_FOUND,
-                "message": format!("unknown tool: {name}")
-            }
-        }));
+    match name {
+        TOOL_NAME => resolve_ask_user(st, session_key, id).await,
+        REVIEW_TOOL_NAME => resolve_request_review(id, &params).await,
+        other => {
+            // Encode "unknown tool" as a JSON-RPC error wrapped in a Value so
+            // the caller can choose how to deliver it (plain JSON vs SSE).
+            Ok(json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "error": {
+                    "code": ERR_METHOD_NOT_FOUND,
+                    "message": format!("unknown tool: {other}")
+                }
+            }))
+        }
     }
+}
 
+/// `AskUserQuestion` — blocks until the user answers over REST, then returns
+/// the answer as the tool result. See module docs for the rendezvous protocol.
+async fn resolve_ask_user(
+    st: &ServerState,
+    session_key: &str,
+    id: Value,
+) -> Result<Value, CoreError> {
     // (1) Wait until the NDJSON parser sees the matching `tool_use_id` for
     // this session. In practice the parser pushes within milliseconds —
     // sometimes BEFORE this handler is even invoked.
@@ -349,6 +397,56 @@ async fn resolve_tools_call(
             // Also include the structured form so future clients that
             // understand it don't have to re-parse the text.
             "structuredContent": answer
+        }
+    }))
+}
+
+/// `request_review` — run a cross-model second opinion and return the verdict.
+/// Unlike `AskUserQuestion`, this does not wait on a human: it delegates to
+/// `houston_engine_core::sessions::cross_review`, which selects a reviewer
+/// provider and runs a one-shot review. It can still take tens of seconds, so
+/// it shares the SSE keepalive path (see `handle_post`). The tool call and this
+/// result ride the NDJSON parser rails into the session feed automatically, so
+/// no explicit feed emission is needed.
+async fn resolve_request_review(id: Value, params: &Value) -> Result<Value, CoreError> {
+    let args = params.get("arguments").cloned().unwrap_or(Value::Null);
+    let work_summary = args
+        .get("work_summary")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let work_content = args
+        .get("work_content")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| CoreError::BadRequest("request_review: missing 'work_content'".into()))?;
+    let focus = args.get("focus").and_then(|v| v.as_str());
+
+    // The in-engine MCP server is wired only for anthropic sessions today
+    // (`sessions::start` gates the per-session mcp_config on the anthropic
+    // provider), so the caller is anthropic. When MCP coverage extends to
+    // other providers, resolve the caller's provider from session context so
+    // the reviewer still differs from it.
+    let caller = houston_terminal_manager::Provider::default();
+
+    let verdict = houston_engine_core::sessions::cross_review::run_review(
+        caller,
+        work_summary,
+        work_content,
+        focus,
+    )
+    .await?;
+
+    let verdict_text = serde_json::to_string(&verdict)
+        .map_err(|e| CoreError::Internal(format!("review verdict serialize: {e}")))?;
+
+    Ok(json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "result": {
+            "content": [
+                { "type": "text", "text": verdict_text }
+            ],
+            "isError": false,
+            "structuredContent": verdict
         }
     }))
 }
@@ -521,11 +619,64 @@ mod tests {
         .await;
         let value = body_to_value(resp).await;
         let tools = value["result"]["tools"].as_array().expect("tools array");
-        assert_eq!(tools.len(), 1);
+        assert_eq!(tools.len(), 2);
         assert_eq!(tools[0]["name"], TOOL_NAME);
         assert!(tools[0]["description"].as_str().unwrap().contains("Other"));
         // Schema must require questions array and forbid missing fields.
         assert_eq!(tools[0]["inputSchema"]["required"][0], "questions");
+    }
+
+    #[tokio::test]
+    async fn tools_list_includes_request_review() {
+        let (state, _dir) = test_state().await;
+        let resp = handle_post(
+            State(state),
+            Path("sk".into()),
+            Json(json!({"jsonrpc":"2.0","id":21,"method":"tools/list"})),
+        )
+        .await;
+        let value = body_to_value(resp).await;
+        let tools = value["result"]["tools"].as_array().expect("tools array");
+        let review = tools
+            .iter()
+            .find(|t| t["name"] == REVIEW_TOOL_NAME)
+            .expect("request_review tool present");
+        let required = review["inputSchema"]["required"]
+            .as_array()
+            .expect("required array");
+        assert!(required.iter().any(|v| v == "work_summary"));
+        assert!(required.iter().any(|v| v == "work_content"));
+    }
+
+    #[tokio::test]
+    async fn request_review_missing_work_content_is_invalid_params() {
+        // Missing required arg must error BEFORE any provider CLI is spawned:
+        // resolve_request_review returns BadRequest, mapped to ERR_INVALID_PARAMS
+        // and delivered over the same SSE channel as every other tools/call.
+        let (state, _dir) = test_state().await;
+        let resp = handle_post(
+            State(state),
+            Path("sk".into()),
+            Json(json!({
+                "jsonrpc": "2.0",
+                "id": 22,
+                "method": "tools/call",
+                "params": {
+                    "name": REVIEW_TOOL_NAME,
+                    "arguments": { "work_summary": "did a thing" }
+                }
+            })),
+        )
+        .await;
+        let bytes = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
+        let body = String::from_utf8_lossy(&bytes);
+        let payload_line = body
+            .lines()
+            .find(|l| l.starts_with("data: "))
+            .expect("a data: line carrying the JSON-RPC error");
+        let payload: Value =
+            serde_json::from_str(payload_line.trim_start_matches("data: ").trim()).unwrap();
+        assert_eq!(payload["error"]["code"], ERR_INVALID_PARAMS);
     }
 
     #[tokio::test]
