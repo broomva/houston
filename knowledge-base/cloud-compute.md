@@ -115,6 +115,35 @@ numbers that decide the architecture come from `--backend fly`.
   `start` p50 ~0.5ms → 16-way ~4ms)
 - Density/cost + soak are follow-ups once `fly` is live (real VM RAM/idle cost).
 
+## Deploying the engine (the container image)
+
+The engine ships as a Linux container built by `always-on/Dockerfile`: a
+release `houston-engine` plus claude/codex/composio pre-installed (cli-deps.json
+has no linux URLs, so they're installed at build time, not runtime). One image
+serves every cloud target:
+
+- **Railway (lean v1, single-tenant)** — `always-on/railway.json` builds the
+  Dockerfile + healthchecks `/healthz`. Managed container, TLS + domain
+  included, no microVM ops; matches the Railway-default constraint. Mount a
+  volume at `/data/state` (not `/data` — that shadows the baked-in CLIs at
+  `/data/.local`) and set `HOUSTON_HOME=/data/state/.houston`. Full runbook:
+  `always-on/README.md`.
+- **Fly (isolation upgrade)** — the same image pushed to `registry.fly.io/<app>`
+  is the `FLY_IMAGE` the `fly` backend boots as one Firecracker microVM per
+  agent.
+
+**Cloud → mobile PWA is nearly free.** The engine dials *outbound* to the
+shipped relay (`tunnel.gethouston.ai`) and registers a reverse tunnel exactly
+like a desktop engine, so the phone pairs over the existing relay with no
+relay/PWA/protocol change ("same code, two doors"). Mint the code with
+`POST /v1/tunnel/pairing`, open `tunnel.gethouston.ai/pair/<code>` on the phone.
+See `docs/mobile-architecture.md`.
+
+Two engine-side enablers landed for cloud deploy: an **unauthenticated
+`/healthz`** liveness route (platform healthchecks can't send a bearer; `/v1/*`
+stays authed) and a **`$PORT`-honoring entrypoint** (`always-on/docker-entrypoint.sh`)
+so the image binds whatever Railway/Fly/Heroku injects.
+
 ## Maturity ladder (managed-first)
 
 `v0` desktop (engine on user's Mac) → `v1` managed µVM (**Fly.io**, start here)
