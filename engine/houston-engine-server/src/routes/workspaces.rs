@@ -117,6 +117,13 @@ struct ImportContextBody {
 
 /// Ingest the chosen sources into a bounded, redacted corpus staged under the
 /// workspace. The folder walk can be slow, so it runs on a blocking thread.
+///
+/// Trust model: the caller-supplied `path` is read as-is. On the desktop app
+/// (the only shipping target today) the path comes from the user's own native
+/// picker, so this is the same trust boundary as the rest of the OS bridge
+/// (`pick_directory`, `reveal_file`). If/when the engine runs remote (Teams /
+/// Cloud, not yet built), this route MUST gain root confinement before exposure
+/// — tracked alongside the rest of the remote-engine hardening.
 async fn import_context(
     State(st): State<Arc<ServerState>>,
     Path(id): Path<String>,

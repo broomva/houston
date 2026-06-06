@@ -5,15 +5,18 @@
 //! relevant keys (`parts`, `text`, `title`, `name`) anywhere in each
 //! conversation's JSON. One corpus doc per conversation.
 
-use crate::context_bootstrap::limits::{truncate_chars, MAX_CONVERSATIONS, MAX_DOC_CHARS};
+use crate::context_bootstrap::limits::{
+    truncate_chars, MAX_CONVERSATIONS, MAX_DOC_CHARS, MAX_EXPORT_BYTES,
+};
 use crate::context_bootstrap::redact::redact_secrets;
 use crate::context_bootstrap::{CorpusDoc, ImportSourceKind, SkippedDoc};
 use crate::error::{CoreError, CoreResult};
 use serde_json::Value;
 use std::path::Path;
 
-/// Parse an export file into one doc per conversation. A missing file or invalid
-/// JSON is a hard error (surfaced as a toast); an empty conversation is skipped.
+/// Parse an export file into one doc per conversation. A missing file, an
+/// oversized file, or invalid JSON is a hard error (surfaced as a toast); an
+/// empty conversation is skipped.
 pub(crate) fn parse_json_export(
     path: &Path,
     kind: ImportSourceKind,
@@ -25,6 +28,16 @@ pub(crate) fn parse_json_export(
         return Err(CoreError::BadRequest(format!(
             "not an export file: {}",
             path.display()
+        )));
+    }
+    // Guard before reading: real exports can be hundreds of MB and would OOM
+    // the engine (held as a String AND a serde Value tree).
+    let len = std::fs::metadata(path)?.len();
+    if len > MAX_EXPORT_BYTES {
+        return Err(CoreError::BadRequest(format!(
+            "export file is too large ({} MB); the limit is {} MB",
+            len / (1024 * 1024),
+            MAX_EXPORT_BYTES / (1024 * 1024)
         )));
     }
     let raw = std::fs::read_to_string(path)?;
@@ -87,15 +100,18 @@ fn conversation_label(convo: &Value, index: usize) -> String {
     format!("conversation {}", index + 1)
 }
 
-/// Recursively collect strings stored under any key in `keys`.
+/// Recursively collect strings stored under any key in `keys`. A key match
+/// consumes its child via `collect_strings`; we do NOT also recurse into that
+/// child, or nested `{type, text}` content blocks would be counted twice.
 fn harvest(value: &Value, keys: &[&str], out: &mut String) {
     match value {
         Value::Object(map) => {
             for (key, child) in map {
                 if keys.contains(&key.as_str()) {
                     collect_strings(child, out);
+                } else {
+                    harvest(child, keys, out);
                 }
-                harvest(child, keys, out);
             }
         }
         Value::Array(arr) => {
@@ -151,7 +167,7 @@ mod tests {
             "n2":{"message":{"author":{"role":"assistant"},"content":{"content_type":"text","parts":["Sure, here is a plan"]}}}
           }}
         ]"#;
-        let docs = parse(json, ImportSourceKind::ChatGptExport, &["parts", "title", "text", "name"]);
+        let docs = parse(json, ImportSourceKind::ChatGptExport, &["parts", "text"]);
         assert_eq!(docs.len(), 1);
         assert_eq!(docs[0].label, "Sales planning");
         assert!(docs[0].text.contains("B2B fintech leads"));
@@ -166,11 +182,45 @@ mod tests {
             {"sender":"assistant","content":[{"type":"text","text":"Great, let us define the roles"}]}
           ]}
         ]"#;
-        let docs = parse(json, ImportSourceKind::ClaudeAiExport, &["text", "name", "title", "parts"]);
+        let docs = parse(json, ImportSourceKind::ClaudeAiExport, &["text", "parts"]);
         assert_eq!(docs.len(), 1);
         assert_eq!(docs[0].label, "Recruiting");
         assert!(docs[0].text.contains("hiring two engineers"));
         assert!(docs[0].text.contains("define the roles"));
+    }
+
+    #[test]
+    fn content_block_text_is_not_double_counted() {
+        // {type, text} blocks are the real Claude.ai shape; the harvested
+        // "text" key holds an object that itself has "text". Must appear once.
+        let json = r#"[{"name":"T","chat_messages":[
+            {"content":[{"type":"text","text":"UNIQUEPHRASE"}]}
+        ]}]"#;
+        let docs = parse(json, ImportSourceKind::ClaudeAiExport, &["text", "parts"]);
+        assert_eq!(docs[0].text.matches("UNIQUEPHRASE").count(), 1);
+    }
+
+    #[test]
+    fn author_name_is_not_slurped_into_body() {
+        let json = r#"[{"title":"T","mapping":{
+            "n":{"message":{"author":{"role":"tool","name":"sometoolname"},"content":{"parts":["the real message"]}}}
+        }}]"#;
+        let docs = parse(json, ImportSourceKind::ChatGptExport, &["parts", "text"]);
+        assert!(docs[0].text.contains("the real message"));
+        assert!(!docs[0].text.contains("sometoolname"));
+    }
+
+    #[test]
+    fn oversized_export_is_rejected() {
+        use crate::context_bootstrap::limits::MAX_EXPORT_BYTES;
+        // Sanity: the guard constant is set; a normal small fixture passes it.
+        assert!(MAX_EXPORT_BYTES > 1024 * 1024);
+        let docs = parse(
+            r#"[{"title":"T","chat_messages":[{"text":"ok"}]}]"#,
+            ImportSourceKind::ClaudeAiExport,
+            &["text"],
+        );
+        assert_eq!(docs.len(), 1);
     }
 
     #[test]

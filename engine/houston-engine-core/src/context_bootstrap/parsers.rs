@@ -19,25 +19,40 @@ pub(crate) fn parse_source(
     docs: &mut Vec<CorpusDoc>,
     skipped: &mut Vec<SkippedDoc>,
 ) -> CoreResult<()> {
+    // Expand a leading `~` once for every kind so REST callers can submit
+    // `~/...` paths verbatim (the `paths.rs` contract). The desktop picker
+    // already returns absolute paths, so this is a no-op there.
+    let path = crate::paths::expand_tilde(&src.path);
     match src.kind {
-        ImportSourceKind::LocalFolder => {
-            walk_text_folder(&src.path, ImportSourceKind::LocalFolder, ALLOWED_TEXT_EXTS, docs, skipped)
-        }
-        ImportSourceKind::ObsidianVault => {
-            walk_text_folder(&src.path, ImportSourceKind::ObsidianVault, MARKDOWN_EXTS, docs, skipped)
-        }
-        ImportSourceKind::ClaudeHome => parse_claude_home(&src.path, docs, skipped),
+        ImportSourceKind::LocalFolder => walk_text_folder(
+            &path,
+            ImportSourceKind::LocalFolder,
+            ALLOWED_TEXT_EXTS,
+            docs,
+            skipped,
+        ),
+        ImportSourceKind::ObsidianVault => walk_text_folder(
+            &path,
+            ImportSourceKind::ObsidianVault,
+            MARKDOWN_EXTS,
+            docs,
+            skipped,
+        ),
+        ImportSourceKind::ClaudeHome => parse_claude_home(&path, docs, skipped),
+        // Note: "name"/"title" are NOT harvested into the body — the
+        // conversation label reads them directly. Harvesting "name" would slurp
+        // every author.name as message text.
         ImportSourceKind::ChatGptExport => parse_json_export(
-            &src.path,
+            &path,
             ImportSourceKind::ChatGptExport,
-            &["parts", "title", "text", "name"],
+            &["parts", "text"],
             docs,
             skipped,
         ),
         ImportSourceKind::ClaudeAiExport => parse_json_export(
-            &src.path,
+            &path,
             ImportSourceKind::ClaudeAiExport,
-            &["text", "name", "title", "parts"],
+            &["text", "parts"],
             docs,
             skipped,
         ),
@@ -52,7 +67,8 @@ fn parse_claude_home(
     docs: &mut Vec<CorpusDoc>,
     skipped: &mut Vec<SkippedDoc>,
 ) -> CoreResult<()> {
-    let home = crate::paths::expand_tilde(path);
+    // `path` is already tilde-expanded by `parse_source`.
+    let home = path;
     if !home.is_dir() {
         return Err(CoreError::BadRequest(format!(
             "not a Claude home folder: {}",
@@ -77,7 +93,13 @@ fn parse_claude_home(
 
     let projects = home.join("projects");
     if projects.is_dir() {
-        walk_text_folder(&projects, ImportSourceKind::ClaudeHome, MARKDOWN_EXTS, docs, skipped)?;
+        walk_text_folder(
+            &projects,
+            ImportSourceKind::ClaudeHome,
+            MARKDOWN_EXTS,
+            docs,
+            skipped,
+        )?;
     }
     Ok(())
 }
@@ -92,7 +114,10 @@ fn walk_text_folder(
     skipped: &mut Vec<SkippedDoc>,
 ) -> CoreResult<()> {
     if !root.is_dir() {
-        return Err(CoreError::BadRequest(format!("not a folder: {}", root.display())));
+        return Err(CoreError::BadRequest(format!(
+            "not a folder: {}",
+            root.display()
+        )));
     }
 
     let mut count = 0usize;
@@ -106,7 +131,10 @@ fn walk_text_folder(
             Ok(e) => e,
             Err(e) => {
                 skipped.push(SkippedDoc {
-                    path: e.path().map(|p| p.display().to_string()).unwrap_or_default(),
+                    path: e
+                        .path()
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_default(),
                     reason: e.to_string(),
                 });
                 continue;

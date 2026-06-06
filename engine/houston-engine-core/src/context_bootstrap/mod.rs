@@ -162,7 +162,10 @@ pub fn ingest(ws_dir: &Path, sources: &[ImportSource]) -> CoreResult<ImportSumma
         skipped,
         truncated,
     };
-    corpus::write_atomic(&dir.join("summary.json"), &serde_json::to_string_pretty(&summary)?)?;
+    corpus::write_atomic(
+        &dir.join("summary.json"),
+        &serde_json::to_string_pretty(&summary)?,
+    )?;
     Ok(summary)
 }
 
@@ -222,7 +225,10 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(summary.docs, 1, "only the .md counts; .png is not an allowed ext");
+        assert_eq!(
+            summary.docs, 1,
+            "only the .md counts; .png is not an allowed ext"
+        );
         assert!(summary.bytes > 0);
 
         let staged = staging_dir(ws.path());

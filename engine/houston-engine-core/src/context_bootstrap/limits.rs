@@ -5,6 +5,10 @@
 pub const MAX_FILES: usize = 400;
 /// Files larger than this are skipped (almost never prose).
 pub const MAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
+/// A whole ChatGPT/Claude export JSON larger than this is rejected before it is
+/// read into memory — real exports can be hundreds of MB and would OOM the
+/// engine (the file is held as a String AND a serde Value tree).
+pub const MAX_EXPORT_BYTES: u64 = 200 * 1024 * 1024;
 /// A single document is truncated to this many chars before it joins the corpus.
 pub const MAX_DOC_CHARS: usize = 40_000;
 /// Total assembled corpus budget (≈ the synthesis prompt ceiling).

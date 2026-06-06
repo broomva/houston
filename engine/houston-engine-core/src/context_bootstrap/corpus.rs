@@ -19,7 +19,11 @@ pub(crate) fn assemble(docs: &[CorpusDoc]) -> (String, bool) {
             truncated = true;
             break;
         }
-        let header = format!("\n\n## [{}] {}\n\n", doc.source_kind.human_label(), doc.label);
+        let header = format!(
+            "\n\n## [{}] {}\n\n",
+            doc.source_kind.human_label(),
+            doc.label
+        );
         let remaining = MAX_CORPUS_CHARS
             .saturating_sub(used)
             .saturating_sub(header.chars().count());
@@ -29,6 +33,9 @@ pub(crate) fn assemble(docs: &[CorpusDoc]) -> (String, bool) {
             break;
         }
         let (body, clipped) = truncate_chars(doc.text.trim(), budget);
+        if body.is_empty() {
+            continue; // skip whitespace-only docs — no empty headers in the corpus
+        }
         if clipped {
             truncated = true;
         }
@@ -77,6 +84,14 @@ mod tests {
         let (out, truncated) = assemble(&[doc(&big)]);
         assert!(truncated);
         assert!(out.chars().count() <= MAX_CORPUS_CHARS);
+    }
+
+    #[test]
+    fn assemble_skips_empty_docs_no_blank_headers() {
+        let (out, _) = assemble(&[doc("   \n  "), doc("real content here")]);
+        assert!(out.contains("real content here"));
+        // Only one section header — the whitespace-only doc produced none.
+        assert_eq!(out.matches("## [").count(), 1);
     }
 
     #[test]

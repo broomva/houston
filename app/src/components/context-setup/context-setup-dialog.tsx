@@ -139,8 +139,9 @@ export function ContextSetupDialog({
 
           {step === "review" && (
             <div className="flex flex-col gap-4">
-              {summary && (summary.skipped.length > 0 || summary.truncated) && (
+              {summary && (
                 <p className="text-[11px] text-muted-foreground">
+                  {t("importing.found", { count: summary.docs })}{" "}
                   {summary.skipped.length > 0 &&
                     t("importing.skipped", { count: summary.skipped.length })}{" "}
                   {summary.truncated && t("importing.truncated")}
