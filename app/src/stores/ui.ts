@@ -50,6 +50,11 @@ interface UIState {
    *  focused (the first Escape blurs the composer, the second closes). */
   onPanelClose: (() => void) | null;
   jobDescriptionTarget: JobDescriptionTarget | null;
+  /** Slug of a skill to pre-pin in the composer the next time the agent's
+   * Activity tab opens a new mission. Set by the "Help me write this" button on
+   * the Job Description screen; consumed (and cleared) by `useAgentChatPanel`
+   * once the agent's skills have loaded. */
+  pendingComposerSkillSlug: string | null;
   /** Pin the first-run tutorial UI in front of the workspace shell. Set true
    * while the orchestrator is mid-flight, cleared on graduation or skip. */
   tutorialActive: boolean;
@@ -82,6 +87,7 @@ interface UIState {
   setOnBoardOpen: (cb: (() => void) | null) => void;
   setOnPanelClose: (cb: (() => void) | null) => void;
   setJobDescriptionTarget: (target: JobDescriptionTarget | null) => void;
+  setPendingComposerSkill: (slug: string | null) => void;
   setTutorialActive: (active: boolean) => void;
   setUiTourActive: (active: boolean) => void;
   setShareAgentId: (agentId: string | null) => void;
@@ -112,6 +118,7 @@ export const useUIStore = create<UIState>((set) => ({
   onBoardOpen: null,
   onPanelClose: null,
   jobDescriptionTarget: null,
+  pendingComposerSkillSlug: null,
   tutorialActive: false,
   uiTourActive: false,
   shareAgentId: null,
@@ -191,6 +198,7 @@ export const useUIStore = create<UIState>((set) => ({
   setOnBoardOpen: (onBoardOpen) => set({ onBoardOpen }),
   setOnPanelClose: (onPanelClose) => set({ onPanelClose }),
   setJobDescriptionTarget: (jobDescriptionTarget) => set({ jobDescriptionTarget }),
+  setPendingComposerSkill: (pendingComposerSkillSlug) => set({ pendingComposerSkillSlug }),
   setTutorialActive: (tutorialActive) => set({ tutorialActive }),
   setUiTourActive: (uiTourActive) => set({ uiTourActive }),
   setShareAgentId: (shareAgentId) => set({ shareAgentId }),

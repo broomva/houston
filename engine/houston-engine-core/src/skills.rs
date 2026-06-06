@@ -387,6 +387,13 @@ fn emit_skills_changed(events: &DynEventSink, workspace_path: &str) {
 // ── Public API ─────────────────────────────────────────────────────
 
 pub fn list(workspace_path: &str) -> CoreResult<Vec<SkillSummaryResponse>> {
+    // Seed built-in skills (e.g. the guided job-description writer) so they are
+    // present the moment the picker / composer reads this agent's skills, not
+    // only after the agent's next session start. Idempotent and non-destructive
+    // — user edits and deletions are preserved.
+    let agent_root = expand_tilde(&PathBuf::from(workspace_path));
+    houston_agent_files::builtin_skills::seed_builtin_skills(&agent_root)
+        .map_err(|e| CoreError::Internal(e.to_string()))?;
     let dir = skills_dir(workspace_path);
     let summaries = houston_skills::list_skills(&dir)?;
     for s in &summaries {
@@ -429,6 +436,10 @@ pub fn list(workspace_path: &str) -> CoreResult<Vec<SkillSummaryResponse>> {
 
 pub fn catalog(workspace_path: &str, include_external: bool) -> CoreResult<Vec<SkillCatalogItem>> {
     let root = expand_tilde(&PathBuf::from(workspace_path));
+    // Seed built-ins so they also show in the slash picker on first load — the
+    // same guarantee `list` makes for the new-mission picker. Idempotent.
+    houston_agent_files::builtin_skills::seed_builtin_skills(&root)
+        .map_err(|e| CoreError::Internal(e.to_string()))?;
     let mut items = Vec::new();
     let mut seen = HashSet::new();
 
@@ -601,11 +612,25 @@ mod tests {
         (Arc::new(b.clone()), b)
     }
 
+    fn is_builtin(name: &str) -> bool {
+        houston_agent_files::builtin_skills::ALL
+            .iter()
+            .any(|(slug, _)| *slug == name)
+    }
+
     #[test]
-    fn list_empty_when_missing() {
+    fn list_seeds_builtins_for_fresh_agent() {
         let d = TempDir::new().unwrap();
         let ws = d.path().to_string_lossy().to_string();
-        assert!(list(&ws).unwrap().is_empty());
+        // A fresh agent has no user skills, but `list` seeds the built-ins so
+        // the picker / composer can reach them immediately.
+        let names: Vec<String> = list(&ws).unwrap().into_iter().map(|s| s.name).collect();
+        assert!(!names.is_empty(), "built-ins should be seeded");
+        assert!(
+            names.iter().all(|n| is_builtin(n)),
+            "only built-ins expected"
+        );
+        assert!(names.iter().any(|n| n == "write-my-job-description"));
     }
 
     #[tokio::test]
@@ -629,10 +654,12 @@ mod tests {
         let ev = rx.recv().await.expect("SkillsChanged event");
         matches!(ev, HoustonEvent::SkillsChanged { .. });
 
+        // `list` also seeds built-ins — scope the assertion to user skills.
         let all = list(&ws).unwrap();
-        assert_eq!(all.len(), 1);
-        assert_eq!(all[0].name, "my-skill");
-        assert_eq!(all[0].version, 1);
+        let user: Vec<_> = all.iter().filter(|s| !is_builtin(&s.name)).collect();
+        assert_eq!(user.len(), 1);
+        assert_eq!(user[0].name, "my-skill");
+        assert_eq!(user[0].version, 1);
 
         let loaded = load(&ws, "my-skill").unwrap();
         assert!(loaded.content.contains("Do stuff"));
@@ -758,10 +785,12 @@ mod tests {
 
         let items = catalog(&ws, false).unwrap();
 
-        assert_eq!(items.len(), 1);
-        assert_eq!(items[0].name, "local");
-        assert_eq!(items[0].origin, SkillCatalogOrigin::HoustonAgent);
-        assert!(!items[0].readonly);
+        // `catalog` also seeds built-ins — scope to the user skill.
+        let user: Vec<_> = items.iter().filter(|i| !is_builtin(&i.name)).collect();
+        assert_eq!(user.len(), 1);
+        assert_eq!(user[0].name, "local");
+        assert_eq!(user[0].origin, SkillCatalogOrigin::HoustonAgent);
+        assert!(!user[0].readonly);
     }
 
     #[test]

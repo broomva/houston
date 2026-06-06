@@ -20,6 +20,32 @@ agent ask for missing details.
 
 The body is a regular markdown file Claude Code uses as the procedure when the Skill runs. The frontmatter drives both **tool discovery** (Claude reads `name` + `description`) and current **UI rendering** fields such as category, featured, image, and integrations.
 
+## Built-in skills
+
+Some skills ship with Houston and must reach **every** agent — built-in, blank,
+imported, or Store — not just Store-installed ones. These are **embedded in the
+engine** and seeded universally, distinct from Store-packaged skills (which only
+land in agents installed from a package).
+
+- Source of truth: `engine/houston-agent-files/assets/skills/<slug>/SKILL.md`,
+  embedded at compile time via `include_str!` in
+  `houston-agent-files/src/builtin_skills.rs` (`ALL` list, mirrors `schemas.rs`).
+- Seeding: `builtin_skills::seed_builtin_skills(agent_root)` writes each
+  `.agents/skills/<slug>/SKILL.md` **only when absent** — non-destructive, so
+  user edits and deletions win (same "add only, never clobber" contract as Store
+  sync). Called from two places:
+  1. `migrate_agent_data` — runs on create, on session start (`seed_agent`), and
+     on Store sync. Covers existing agents the next time they run.
+  2. `houston_engine_core::skills::list` (`GET /v1/skills`) — guarantees presence
+     the moment the picker / composer reads an agent's skills, so a not-yet-
+     migrated existing agent still has the skill when the UI needs it.
+- First built-in: **`write-my-job-description`** (`featured: no` so it doesn't
+  clutter the empty-state showcase) — the guided instruction-writer invoked by
+  the Job Description "Help me write this" button (see `agent-manifest.md`).
+
+To add another built-in: drop a `SKILL.md` under `assets/skills/<slug>/`, add one
+entry to `builtin_skills::ALL`, done. Tests live in `builtin_skills.rs` (frontmatter parses, slug matches, seed is idempotent + non-destructive, migration seeds it).
+
 ## Frontmatter schema
 
 Source of truth: `engine/houston-skills/src/lib.rs` (`SkillSummary`). Parsed by `serde_yml`, so anything valid YAML works.
