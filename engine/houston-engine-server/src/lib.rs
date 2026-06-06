@@ -57,6 +57,11 @@ pub fn build_router(state: Arc<ServerState>) -> Router {
 
     Router::new()
         .nest("/v1", v1)
+        // Unauthenticated liveness probe for cloud platforms (Railway, Fly,
+        // K8s) whose health checks can't send a bearer token. Returns only
+        // the already-public version/protocol — no agent data, no auth bypass
+        // for the real `/v1/*` routes, which stay behind `require_bearer`.
+        .route("/healthz", get(routes::health::health))
         .layer(
             // Permissive CORS for loopback dev — the webview (tauri://
             // localhost or http://localhost:1420 in dev) is cross-origin

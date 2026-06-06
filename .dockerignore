@@ -1,0 +1,23 @@
+# Keep the Docker build context small + the build fast/reliable.
+# Without this, `docker build … .` ships the whole repo (multi-GB Rust
+# `target/` + node_modules) to the daemon and can time out
+# ("context deadline exceeded"). The always-on/Dockerfile only needs the
+# Cargo manifests, engine/, the two app/ crate manifests, and
+# ui/agent-schemas/ — everything below is irrelevant to it.
+target/
+**/target/
+node_modules/
+**/node_modules/
+.git/
+.github/
+.context/
+.claude/
+dist/
+**/dist/
+website/
+mobile/ios/
+mobile/android/
+*.dmg
+*.app
+*.png
+*.svg
