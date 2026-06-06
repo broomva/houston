@@ -355,6 +355,7 @@ pub fn run() {
             // OS-native glue — everything domain-related flows through the
             // engine over HTTP/WS, not Tauri IPC.
             commands::os::pick_directory,
+            commands::os::pick_file,
             commands::os::open_url,
             commands::os::open_file,
             commands::os::reveal_file,

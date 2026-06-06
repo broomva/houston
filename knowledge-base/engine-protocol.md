@@ -98,6 +98,8 @@ module.
 | PATCH | `/v1/workspaces/:id/provider` | Set provider/model |
 | GET | `/v1/workspaces/:id/context` | Read shared `WORKSPACE.md` + `USER.md` |
 | PUT | `/v1/workspaces/:id/context` | Write shared `WORKSPACE.md` + `USER.md` |
+| POST | `/v1/workspaces/:id/context/import` | Context enablement: ingest sources → staged corpus. Body `{ sources: [{ kind, path }] }`; returns `ImportSummary`. See `knowledge-base/context.md` |
+| POST | `/v1/workspaces/:id/context/synthesize` | Draft `USER.md` + `WORKSPACE.md` + residual questions from the staged corpus (`{ provider?, model? }` → `ContextDraft`) |
 | GET | `/v1/workspaces/:id/agents` | List agents in workspace |
 | POST | `/v1/workspaces/:id/agents` | Create agent |
 | DELETE | `/v1/workspaces/:id/agents/:agent_id` | Delete agent |

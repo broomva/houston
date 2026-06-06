@@ -11,6 +11,13 @@ If app-specific → `.houston/`.
 ```
 ~/.houston/workspaces/workspaces.json   Workspace[] index: id, name, isDefault, createdAt, locale?
                                           (locale = optional per-workspace UI-locale override; absent = inherit global `locale` pref)
+~/.houston/workspaces/{Workspace}/
+  WORKSPACE.md                  shared workspace context (about the company/project)
+  USER.md                       shared user context (about the human)
+  .houston/
+    context-import/             context-enablement staging (see knowledge-base/context.md)
+      corpus.md                 bounded, redacted corpus assembled from imported sources
+      summary.json              ImportSummary (docs, bytes, skipped, truncated)
 ~/.houston/workspaces/{Workspace}/{Agent}/
   .houston/
     agent.json                  AgentMeta (id, manifest_id, created_at, last_opened_at)

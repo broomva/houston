@@ -1,0 +1,80 @@
+{
+  "title": "Set up your context",
+  "subtitle": "Tell your assistant about you and your work so it can help from day one.",
+  "launcher": {
+    "setUp": "Set up automatically",
+    "improve": "Improve with my content"
+  },
+  "sources": {
+    "heading": "Where should we learn from?",
+    "description": "Point your assistant at what you already have. Nothing is saved until you review it, and everything stays on your computer.",
+    "kinds": {
+      "localFolder": {
+        "label": "A folder",
+        "description": "Notes, documents, or anything you have written."
+      },
+      "claudeHome": {
+        "label": "Your Claude memory",
+        "description": "What Claude already remembers about you on this computer."
+      },
+      "obsidianVault": {
+        "label": "Your notes app",
+        "description": "An Obsidian or Markdown notes folder."
+      },
+      "chatGptExport": {
+        "label": "ChatGPT history",
+        "description": "A history file you downloaded from ChatGPT."
+      },
+      "claudeAiExport": {
+        "label": "Claude history",
+        "description": "A history file you downloaded from Claude."
+      }
+    },
+    "chooseFolder": "Choose folder",
+    "chooseFile": "Choose file",
+    "useThis": "Use this",
+    "remove": "Remove",
+    "continue": "Continue",
+    "skipImport": "Skip, just ask me a few questions",
+    "empty": "Add at least one source, or skip to answer a few questions instead."
+  },
+  "importing": {
+    "heading": "Reading your material",
+    "found_one": "Found {{count}} document.",
+    "found_other": "Found {{count}} documents.",
+    "skipped_one": "Skipped {{count}} item that could not be read.",
+    "skipped_other": "Skipped {{count}} items that could not be read.",
+    "truncated": "There was a lot, so the most relevant parts were used."
+  },
+  "synthesizing": {
+    "heading": "Getting to know you",
+    "status": "Your assistant is reading through everything and drafting your context."
+  },
+  "review": {
+    "heading": "Here is what your assistant learned",
+    "description": "Edit anything that is off, answer a few questions, then save.",
+    "userLabel": "About you",
+    "workspaceLabel": "About your work",
+    "userPlaceholder": "Your role, goals, and how you like to work.",
+    "workspacePlaceholder": "Your company, product, customers, and how things are done.",
+    "questionsHeading": "A few questions",
+    "answerPlaceholder": "Your answer",
+    "sourceHintFolder": "Choose a folder",
+    "save": "Save context",
+    "saving": "Saving"
+  },
+  "done": {
+    "heading": "You are all set",
+    "description": "Your assistant will use this in every conversation. You can update it any time in Settings.",
+    "close": "Done"
+  },
+  "fixedQuestions": {
+    "role": "What is your role, and what do you work on?",
+    "company": "What does your company or project do?",
+    "goals": "What are you trying to accomplish right now?",
+    "workStyle": "How do you like your assistant to work with you?",
+    "keyPeople": "Who do you work with most closely?",
+    "recurringTasks": "What tasks do you find yourself repeating?",
+    "richerSource": "Where do you keep your most detailed notes or documents?"
+  }
+}

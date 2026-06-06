@@ -58,6 +58,11 @@ export function osPickDirectory(): Promise<string | null> {
   return invoke<string | null>("pick_directory");
 }
 
+/** Native single-file picker, filtered to JSON (ChatGPT / Claude.ai exports). */
+export function osPickFile(): Promise<string | null> {
+  return invoke<string | null>("pick_file");
+}
+
 /** Open a URL in the user's default browser. */
 export function osOpenUrl(url: string): Promise<void> {
   return invoke<void>("open_url", { url });

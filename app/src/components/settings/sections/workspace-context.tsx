@@ -1,4 +1,7 @@
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Button } from "@houston-ai/core";
+import { Sparkles } from "lucide-react";
 import { useWorkspaceStore } from "../../../stores/workspaces";
 import {
   useSaveWorkspaceContext,
@@ -8,8 +11,40 @@ import {
   InstructionsContent,
   type InstructionsContentLabels,
 } from "../../tabs/job-description-parts";
+import { ContextSetupDialog, useLastUsedProvider } from "../../context-setup";
 
 type Slot = "workspace" | "user";
+
+/**
+ * "Set up automatically" / "Improve with my content" — opens the import +
+ * synthesize wizard. Shown above both shared-context editors so the user can
+ * reach it whether they are viewing the workspace or the user document.
+ */
+function ContextSetupLauncher() {
+  const { t } = useTranslation("contextSetup");
+  const current = useWorkspaceStore((s) => s.current);
+  const { data } = useWorkspaceContext(current?.id);
+  const [open, setOpen] = useState(false);
+  const provider = useLastUsedProvider();
+
+  if (!current) return null;
+  const isEmpty = !data?.user?.trim() && !data?.workspace?.trim();
+
+  return (
+    <div className="max-w-3xl mx-auto w-full px-6 pt-4 flex justify-end">
+      <Button variant="secondary" onClick={() => setOpen(true)}>
+        <Sparkles className="size-4" />
+        {isEmpty ? t("launcher.setUp") : t("launcher.improve")}
+      </Button>
+      <ContextSetupDialog
+        open={open}
+        onOpenChange={setOpen}
+        workspaceId={current.id}
+        provider={provider}
+      />
+    </div>
+  );
+}
 
 function useSlotEditor(slot: Slot) {
   const currentWorkspace = useWorkspaceStore((s) => s.current);
@@ -44,11 +79,14 @@ export function WorkspaceContextSection() {
   const labels = useSlotLabels("workspaceContext");
   if (!editor.ready) return null;
   return (
-    <InstructionsContent
-      content={editor.content}
-      onSave={editor.onSave}
-      labels={labels}
-    />
+    <>
+      <ContextSetupLauncher />
+      <InstructionsContent
+        content={editor.content}
+        onSave={editor.onSave}
+        labels={labels}
+      />
+    </>
   );
 }
 
@@ -57,10 +95,13 @@ export function UserContextSection() {
   const labels = useSlotLabels("userContext");
   if (!editor.ready) return null;
   return (
-    <InstructionsContent
-      content={editor.content}
-      onSave={editor.onSave}
-      labels={labels}
-    />
+    <>
+      <ContextSetupLauncher />
+      <InstructionsContent
+        content={editor.content}
+        onSave={editor.onSave}
+        labels={labels}
+      />
+    </>
   );
 }

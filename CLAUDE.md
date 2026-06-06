@@ -66,6 +66,7 @@ Need specific knowledge? Load on demand:
 - `.houston/` layout, schemas, reactivity → `knowledge-base/files-first.md`
 - Skills on disk + UI, picker, invocation marker → `knowledge-base/skills.md`
 - Agent manifest, tiers, sidebar, workspaces → `knowledge-base/agent-manifest.md`
+- Context model (workspace vs agent), isolation, enablement/import → `knowledge-base/context.md`
 - Engine wire protocol (REST + WS) → `knowledge-base/engine-protocol.md`
 - Provider error taxonomy + classifier contract → `knowledge-base/provider-errors.md`
 - `houston-engine` binary ops → `knowledge-base/engine-server.md`
