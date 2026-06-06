@@ -25,7 +25,10 @@ pub mod file_changes;
 pub mod generate_instructions;
 pub mod history;
 pub mod provider;
-mod provider_oneshot;
+// `pub(crate)` so `context_bootstrap::synthesize` can reuse the shared
+// one-shot CLI round-trip (same primitive `summarize` + `generate_instructions`
+// use). Still crate-internal — not part of the public engine API.
+pub(crate) mod provider_oneshot;
 pub mod suggested_routine;
 pub mod summarize;
 mod summary_text;

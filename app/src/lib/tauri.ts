@@ -98,6 +98,22 @@ export const tauriWorkspaces = {
       "set_workspace_context",
       () => getEngine().setWorkspaceContext(id, body),
     ),
+  importContext: (
+    id: string,
+    req: import("@houston-ai/engine-client").ImportContextRequest,
+  ) =>
+    call<import("@houston-ai/engine-client").ImportSummary>(
+      "import_workspace_context",
+      () => getEngine().importWorkspaceContext(id, req),
+    ),
+  synthesizeContext: (
+    id: string,
+    req: import("@houston-ai/engine-client").SynthesizeContextRequest,
+  ) =>
+    call<import("@houston-ai/engine-client").ContextDraft>(
+      "synthesize_workspace_context",
+      () => getEngine().synthesizeWorkspaceContext(id, req),
+    ),
 };
 
 // ─── Agents ───────────────────────────────────────────────────────────

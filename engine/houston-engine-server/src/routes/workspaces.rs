@@ -8,8 +8,11 @@ use axum::{
     Json, Router,
 };
 use houston_engine_core::agents_crud::{self, Agent, CreateAgent, CreateAgentResult, UpdateAgent};
+use houston_engine_core::context_bootstrap::{self, ContextDraft, ImportSource, ImportSummary};
 use houston_engine_core::workspace_context::{self, WorkspaceContext};
 use houston_engine_core::workspaces::{self, CreateWorkspace, RenameWorkspace, Workspace};
+use houston_engine_core::CoreError;
+use houston_terminal_manager::Provider;
 use serde::Deserialize;
 use std::sync::Arc;
 
@@ -20,6 +23,11 @@ pub fn router() -> Router<Arc<ServerState>> {
         .route("/workspaces/:id/rename", post(rename))
         .route("/workspaces/:id/locale", patch(set_locale))
         .route("/workspaces/:id/context", get(get_context).put(put_context))
+        .route("/workspaces/:id/context/import", post(import_context))
+        .route(
+            "/workspaces/:id/context/synthesize",
+            post(synthesize_context),
+        )
         // Workspace-scoped agents CRUD.
         .route(
             "/workspaces/:id/agents",
@@ -98,6 +106,60 @@ async fn put_context(
     let dir = workspace_context::resolve_dir(st.engine.paths.docs(), &id)?;
     workspace_context::write(&dir, &body)?;
     Ok(Json(workspace_context::read(&dir)?))
+}
+
+/// Body for `POST /workspaces/:id/context/import`.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ImportContextBody {
+    sources: Vec<ImportSource>,
+}
+
+/// Ingest the chosen sources into a bounded, redacted corpus staged under the
+/// workspace. The folder walk can be slow, so it runs on a blocking thread.
+///
+/// Trust model: the caller-supplied `path` is read as-is. On the desktop app
+/// (the only shipping target today) the path comes from the user's own native
+/// picker, so this is the same trust boundary as the rest of the OS bridge
+/// (`pick_directory`, `reveal_file`). If/when the engine runs remote (Teams /
+/// Cloud, not yet built), this route MUST gain root confinement before exposure
+/// — tracked alongside the rest of the remote-engine hardening.
+async fn import_context(
+    State(st): State<Arc<ServerState>>,
+    Path(id): Path<String>,
+    Json(body): Json<ImportContextBody>,
+) -> Result<Json<ImportSummary>, ApiError> {
+    let dir = workspace_context::resolve_dir(st.engine.paths.docs(), &id)?;
+    let sources = body.sources;
+    let summary = tokio::task::spawn_blocking(move || context_bootstrap::ingest(&dir, &sources))
+        .await
+        .map_err(|e| CoreError::Internal(format!("import task panicked: {e}")))??;
+    Ok(Json(summary))
+}
+
+/// Body for `POST /workspaces/:id/context/synthesize`. Provider/model default to
+/// the workspace's pinned provider (resolved client-side) or Anthropic.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SynthesizeContextBody {
+    provider: Option<String>,
+    model: Option<String>,
+}
+
+/// Run the staged corpus through the provider CLI to draft USER.md + WORKSPACE.md
+/// and residual questions. Persists nothing — the user reviews, then `put_context`.
+async fn synthesize_context(
+    State(st): State<Arc<ServerState>>,
+    Path(id): Path<String>,
+    Json(body): Json<SynthesizeContextBody>,
+) -> Result<Json<ContextDraft>, ApiError> {
+    let dir = workspace_context::resolve_dir(st.engine.paths.docs(), &id)?;
+    let provider = match body.provider.as_deref() {
+        Some(p) => p.parse().map_err(CoreError::BadRequest)?,
+        None => Provider::default(),
+    };
+    let draft = context_bootstrap::synthesize(&dir, provider, body.model.as_deref()).await?;
+    Ok(Json(draft))
 }
 
 // -- Workspace-scoped agent CRUD --

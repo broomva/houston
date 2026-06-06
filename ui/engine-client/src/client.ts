@@ -95,6 +95,10 @@ import type {
   VersionResponse,
   Workspace,
   WorkspaceContext,
+  ImportContextRequest,
+  ImportSummary,
+  SynthesizeContextRequest,
+  ContextDraft,
   WorktreeInfo,
   PortableInventoryPreview,
   PortableExportRequest,
@@ -232,6 +236,22 @@ export class HoustonClient {
   }
   setWorkspaceContext(id: string, body: WorkspaceContext): Promise<WorkspaceContext> {
     return this.request("PUT", `/workspaces/${this.seg(id)}/context`, body);
+  }
+  importWorkspaceContext(
+    id: string,
+    req: ImportContextRequest,
+  ): Promise<ImportSummary> {
+    return this.request("POST", `/workspaces/${this.seg(id)}/context/import`, req);
+  }
+  synthesizeWorkspaceContext(
+    id: string,
+    req: SynthesizeContextRequest,
+  ): Promise<ContextDraft> {
+    return this.request(
+      "POST",
+      `/workspaces/${this.seg(id)}/context/synthesize`,
+      req,
+    );
   }
 
   // ---------- workspace-scoped agents ----------
