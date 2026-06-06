@@ -22,6 +22,7 @@ members = [
     "engine/houston-engine-protocol",
     "engine/houston-engine-server",
     "engine/houston-life",
+    "engine/houston-sandbox",
     "app/src-tauri",
 ]
 
@@ -56,6 +57,7 @@ houston-claude-hooks = { version = "0.4.17", path = "engine/houston-claude-hooks
 houston-engine-core = { version = "0.4.17", path = "engine/houston-engine-core" }
 houston-engine-protocol = { version = "0.4.17", path = "engine/houston-engine-protocol" }
 houston-engine-server = { version = "0.4.17", path = "engine/houston-engine-server" }
+houston-sandbox = { version = "0.4.17", path = "engine/houston-sandbox" }
 
 # Keep line-table debug info in release binaries so Sentry can symbolicate
 # Rust panics to file:line. Costs ~10-15% binary size; full debug info is

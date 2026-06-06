@@ -1,0 +1,30 @@
+[package]
+name = "houston-sandbox"
+version = "0.4.17"
+edition = "2021"
+description = "Axis-B sandbox control surface — one policy schema, a pluggable isolation-backend registry, and a benchmark harness for the Houston cloud compute plane"
+license = "MIT"
+repository = "https://github.com/broomva/houston"
+
+[lib]
+name = "houston_sandbox"
+
+[[bin]]
+name = "sandbox-bench"
+path = "src/bin/sandbox-bench.rs"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+thiserror = "2"
+reqwest = { version = "0.12", features = ["json"] }
+
+[dev-dependencies]
+tempfile = "3"
+wiremock = "0.6"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "time"] }
