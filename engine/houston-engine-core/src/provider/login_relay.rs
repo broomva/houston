@@ -164,6 +164,62 @@ fn strip_ansi(line: &str) -> std::borrow::Cow<'_, str> {
     ANSI_ESCAPE_RE.replace_all(line, "")
 }
 
+/// Stdout-processing state for the login relay, shared by the streaming read
+/// loop and the post-exit drain so a fast-exiting CLI can't drop the
+/// device-code line.
+struct LoginEmitter<'a> {
+    device_auth: bool,
+    provider_id: &'a str,
+    cli_name: &'a str,
+    sink: &'a DynEventSink,
+    url_emitted: bool,
+    login_url: Option<String>,
+    code_emitted: bool,
+}
+
+impl LoginEmitter<'_> {
+    /// Process one stdout line: surface the OAuth URL the instant it streams,
+    /// and — in device-auth mode — re-emit it carrying the one-time code once
+    /// that line arrives. Strips ANSI first (see [`strip_ansi`]); the trailing
+    /// `m` of `\x1b[94m` otherwise defeats the `\b` anchor in DEVICE_CODE_RE.
+    /// The code value is never logged.
+    fn process(&mut self, raw: &str) {
+        let clean = strip_ansi(raw);
+        let clean = clean.as_ref();
+        if !self.url_emitted {
+            if let Some(url) = extract_login_url(clean) {
+                tracing::info!(
+                    "[houston:provider] {} login URL surfaced: {url}",
+                    self.cli_name
+                );
+                self.sink.emit(HoustonEvent::ProviderLoginUrl {
+                    provider: self.provider_id.to_string(),
+                    url: url.clone(),
+                    user_code: None,
+                });
+                self.login_url = Some(url);
+                self.url_emitted = true;
+            }
+        }
+        if self.device_auth && !self.code_emitted {
+            if let (Some(url), Some(code)) =
+                (self.login_url.as_ref(), extract_device_user_code(clean))
+            {
+                tracing::info!(
+                    "[houston:provider] {} device login code surfaced",
+                    self.cli_name
+                );
+                self.sink.emit(HoustonEvent::ProviderLoginUrl {
+                    provider: self.provider_id.to_string(),
+                    url: url.clone(),
+                    user_code: Some(code),
+                });
+                self.code_emitted = true;
+            }
+        }
+    }
+}
+
 /// Register a new login session, taking ownership of the CLI's
 /// stdin handle. Returns `BadRequest` if a session is already in
 /// flight for the same provider — the caller should kill its own
@@ -285,14 +341,19 @@ async fn relay_login_output(
         })
     });
 
-    let mut url_emitted = false;
-    // Buffered first URL + whether we've emitted the device code yet.
-    // codex's `--device-auth` prints the verification URL first, then the
-    // one-time code a few lines later; we hold the URL so the code-bearing
-    // re-emit can carry both.
-    let mut login_url: Option<String> = None;
-    let mut code_emitted = false;
     let mut reader = BufReader::new(stdout).lines();
+    // codex's `--device-auth` prints the verification URL first, then the
+    // one-time code a few lines later; the emitter buffers the URL so the
+    // code-bearing re-emit can carry both.
+    let mut emitter = LoginEmitter {
+        device_auth,
+        provider_id: &provider_id,
+        cli_name: &cli_name,
+        sink: &sink,
+        url_emitted: false,
+        login_url: None,
+        code_emitted: false,
+    };
 
     // Outer timeout protects against a CLI that keeps stdout open
     // and never exits (user abandoned the browser flow, claude
@@ -313,53 +374,7 @@ async fn relay_login_output(
                 }
                 line = reader.next_line() => {
                     match line {
-                        Ok(Some(line)) => {
-                            // codex colourizes stdout even over a pipe, so the
-                            // URL and device code arrive wrapped in SGR escape
-                            // sequences. Strip them before matching — the
-                            // trailing `m` of `\x1b[94m` otherwise defeats the
-                            // `\b` anchor in DEVICE_CODE_RE and the code is
-                            // never surfaced. See `strip_ansi`.
-                            let clean = strip_ansi(&line);
-                            let clean = clean.as_ref();
-                            if !url_emitted {
-                                if let Some(url) = extract_login_url(clean) {
-                                    tracing::info!(
-                                        "[houston:provider] {cli_name} login URL surfaced: {url}"
-                                    );
-                                    sink.emit(HoustonEvent::ProviderLoginUrl {
-                                        provider: provider_id.clone(),
-                                        url: url.clone(),
-                                        user_code: None,
-                                    });
-                                    login_url = Some(url);
-                                    url_emitted = true;
-                                }
-                            }
-                            // Device-auth (codex `--device-auth`) prints a
-                            // one-time code on a later line. Re-emit
-                            // ProviderLoginUrl carrying both the buffered URL
-                            // and the code so the dialog switches from "open
-                            // the link" to "enter this code on the page". The
-                            // code value is never logged. Claude's paste-back
-                            // flow has device_auth = false and never reaches
-                            // here.
-                            if device_auth && !code_emitted {
-                                if let (Some(url), Some(code)) =
-                                    (login_url.as_ref(), extract_device_user_code(clean))
-                                {
-                                    tracing::info!(
-                                        "[houston:provider] {cli_name} device login code surfaced"
-                                    );
-                                    sink.emit(HoustonEvent::ProviderLoginUrl {
-                                        provider: provider_id.clone(),
-                                        url: url.clone(),
-                                        user_code: Some(code),
-                                    });
-                                    code_emitted = true;
-                                }
-                            }
-                        }
+                        Ok(Some(line)) => emitter.process(&line),
                         Ok(None) => break, // stdout EOF — fall through to child.wait
                         Err(e) => {
                             tracing::warn!(
@@ -370,6 +385,17 @@ async fn relay_login_output(
                     }
                 }
                 exit = child.wait() => {
+                    // The child exited, but stdout may still hold buffered
+                    // lines: codex prints the device code right before it would
+                    // block on the browser, and a fast-exiting stand-in flushes
+                    // URL+code then exits. `select!` picks a ready branch
+                    // arbitrarily, so without draining here the exit can win the
+                    // race against the buffered code line and we would emit
+                    // ProviderLoginComplete having never surfaced the code. The
+                    // pipe is closed now, so this drains to EOF immediately.
+                    while let Ok(Some(line)) = reader.next_line().await {
+                        emitter.process(&line);
+                    }
                     return RelayOutcome::Exited(exit);
                 }
             }
