@@ -99,6 +99,82 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
     }
 }
 
+// -- File Picker (JSON exports) --
+
+/// Pick a single `.json` file (a ChatGPT / Claude.ai data export). Mirrors
+/// `pick_directory`: stdlib-only native dialogs per platform, returns the
+/// chosen path or `None` if the user cancels.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn pick_file() -> Result<Option<String>, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let output = Command::new("osascript")
+            .arg("-e")
+            .arg(
+                r#"POSIX path of (choose file with prompt "Select your export file" of type {"public.json", "json"})"#,
+            )
+            .output()
+            .await
+            .map_err(|e| format!("Failed to open file picker: {e}"))?;
+
+        if !output.status.success() {
+            return Ok(None);
+        }
+        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if path.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(path))
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let script = r#"
+Add-Type -AssemblyName System.Windows.Forms | Out-Null
+$dialog = New-Object System.Windows.Forms.OpenFileDialog
+$dialog.Title = 'Select your export file'
+$dialog.Filter = 'JSON files (*.json)|*.json|All files (*.*)|*.*'
+if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+  Write-Output $dialog.FileName
+}
+"#;
+        let output = Command::new("powershell")
+            .args(["-NoProfile", "-Sta", "-Command", script])
+            .output()
+            .await
+            .map_err(|e| format!("Failed to open file picker: {e}"))?;
+
+        if !output.status.success() {
+            return Ok(None);
+        }
+        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if path.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(path))
+    }
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    {
+        let output = Command::new("zenity")
+            .args([
+                "--file-selection",
+                "--title=Select your export file",
+                "--file-filter=JSON files | *.json",
+            ])
+            .output()
+            .await
+            .map_err(|e| format!("Failed to open file picker (install zenity): {e}"))?;
+
+        if !output.status.success() {
+            return Ok(None);
+        }
+        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if path.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(path))
+    }
+}
+
 // -- Open a URL in the default browser --
 
 /// Spawn the OS-native "open this in the default app" command. Path-or-URL

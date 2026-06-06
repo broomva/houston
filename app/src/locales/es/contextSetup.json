@@ -1,0 +1,80 @@
+{
+  "title": "Configura tu contexto",
+  "subtitle": "Cuéntale a tu asistente sobre ti y tu trabajo para que pueda ayudarte desde el primer día.",
+  "launcher": {
+    "setUp": "Configurar automáticamente",
+    "improve": "Mejorar con mi contenido"
+  },
+  "sources": {
+    "heading": "¿De dónde aprendemos?",
+    "description": "Muéstrale a tu asistente lo que ya tienes. Nada se guarda hasta que lo revises, y todo se queda en tu computador.",
+    "kinds": {
+      "localFolder": {
+        "label": "Una carpeta",
+        "description": "Notas, documentos o cualquier cosa que hayas escrito."
+      },
+      "claudeHome": {
+        "label": "La memoria de Claude",
+        "description": "Lo que Claude ya recuerda sobre ti en este computador."
+      },
+      "obsidianVault": {
+        "label": "Tu app de notas",
+        "description": "Una carpeta de notas de Obsidian o Markdown."
+      },
+      "chatGptExport": {
+        "label": "Historial de ChatGPT",
+        "description": "Un archivo de historial que descargaste de ChatGPT."
+      },
+      "claudeAiExport": {
+        "label": "Historial de Claude",
+        "description": "Un archivo de historial que descargaste de Claude."
+      }
+    },
+    "chooseFolder": "Elegir carpeta",
+    "chooseFile": "Elegir archivo",
+    "useThis": "Usar esto",
+    "remove": "Quitar",
+    "continue": "Continuar",
+    "skipImport": "Omitir, solo hazme algunas preguntas",
+    "empty": "Agrega al menos una fuente, u omite para responder algunas preguntas."
+  },
+  "importing": {
+    "heading": "Leyendo tu material",
+    "found_one": "Se encontró {{count}} documento.",
+    "found_other": "Se encontraron {{count}} documentos.",
+    "skipped_one": "Se omitió {{count}} elemento que no se pudo leer.",
+    "skipped_other": "Se omitieron {{count}} elementos que no se pudieron leer.",
+    "truncated": "Había mucho, así que se usaron las partes más relevantes."
+  },
+  "synthesizing": {
+    "heading": "Conociéndote",
+    "status": "Tu asistente está leyendo todo y redactando tu contexto."
+  },
+  "review": {
+    "heading": "Esto es lo que aprendió tu asistente",
+    "description": "Edita lo que no cuadre, responde algunas preguntas y guarda.",
+    "userLabel": "Sobre ti",
+    "workspaceLabel": "Sobre tu trabajo",
+    "userPlaceholder": "Tu rol, tus metas y cómo te gusta trabajar.",
+    "workspacePlaceholder": "Tu empresa, producto, clientes y cómo se hacen las cosas.",
+    "questionsHeading": "Algunas preguntas",
+    "answerPlaceholder": "Tu respuesta",
+    "sourceHintFolder": "Elegir una carpeta",
+    "save": "Guardar contexto",
+    "saving": "Guardando"
+  },
+  "done": {
+    "heading": "Todo listo",
+    "description": "Tu asistente usará esto en cada conversación. Puedes actualizarlo cuando quieras en Configuración.",
+    "close": "Listo"
+  },
+  "fixedQuestions": {
+    "role": "¿Cuál es tu rol y en qué trabajas?",
+    "company": "¿A qué se dedica tu empresa o proyecto?",
+    "goals": "¿Qué estás tratando de lograr ahora mismo?",
+    "workStyle": "¿Cómo te gusta que tu asistente trabaje contigo?",
+    "keyPeople": "¿Con quién trabajas más de cerca?",
+    "recurringTasks": "¿Qué tareas repites con frecuencia?",
+    "richerSource": "¿Dónde guardas tus notas o documentos más detallados?"
+  }
+}

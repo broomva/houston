@@ -44,6 +44,7 @@ import claudeHooksEn from "../locales/en/claudeHooks.json";
 import gitEn from "../locales/en/git.json";
 import portableEn from "../locales/en/portable.json";
 import contextEn from "../locales/en/context.json";
+import contextSetupEn from "../locales/en/contextSetup.json";
 import tileEn from "../locales/en/tile.json";
 import timelineEn from "../locales/en/timeline.json";
 import trackerEn from "../locales/en/tracker.json";
@@ -67,6 +68,7 @@ import claudeHooksEs from "../locales/es/claudeHooks.json";
 import gitEs from "../locales/es/git.json";
 import portableEs from "../locales/es/portable.json";
 import contextEs from "../locales/es/context.json";
+import contextSetupEs from "../locales/es/contextSetup.json";
 import tileEs from "../locales/es/tile.json";
 import timelineEs from "../locales/es/timeline.json";
 import trackerEs from "../locales/es/tracker.json";
@@ -90,6 +92,7 @@ import claudeHooksPt from "../locales/pt/claudeHooks.json";
 import gitPt from "../locales/pt/git.json";
 import portablePt from "../locales/pt/portable.json";
 import contextPt from "../locales/pt/context.json";
+import contextSetupPt from "../locales/pt/contextSetup.json";
 import tilePt from "../locales/pt/tile.json";
 import timelinePt from "../locales/pt/timeline.json";
 import trackerPt from "../locales/pt/tracker.json";
@@ -153,6 +156,7 @@ const resources = {
     git: gitEn,
     portable: portableEn,
     context: contextEn,
+    contextSetup: contextSetupEn,
     tile: tileEn,
     timeline: timelineEn,
     tracker: trackerEn,
@@ -178,6 +182,7 @@ const resources = {
     git: gitEs,
     portable: portableEs,
     context: contextEs,
+    contextSetup: contextSetupEs,
     tile: tileEs,
     timeline: timelineEs,
     tracker: trackerEs,
@@ -203,6 +208,7 @@ const resources = {
     git: gitPt,
     portable: portablePt,
     context: contextPt,
+    contextSetup: contextSetupPt,
     tile: tilePt,
     timeline: timelinePt,
     tracker: trackerPt,
@@ -248,6 +254,7 @@ void i18n
       "git",
       "portable",
       "context",
+      "contextSetup",
       "tile",
       "timeline",
       "tracker",

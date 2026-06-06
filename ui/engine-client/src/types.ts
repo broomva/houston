@@ -94,6 +94,66 @@ export interface WorkspaceContext {
   user: string;
 }
 
+// ---------- Context enablement (import + synthesize) ----------
+
+/** Where a corpus is gathered from. Mirrors the Rust `ImportSourceKind`. */
+export type ImportSourceKind =
+  | "localFolder"
+  | "claudeHome"
+  | "obsidianVault"
+  | "chatGptExport"
+  | "claudeAiExport";
+
+export interface ImportSource {
+  kind: ImportSourceKind;
+  /** Folder path (folder/vault/home) or file path (export JSON). */
+  path: string;
+}
+
+export interface SkippedDoc {
+  path: string;
+  reason: string;
+}
+
+export interface ImportSummary {
+  docs: number;
+  bytes: number;
+  skipped: SkippedDoc[];
+  truncated: boolean;
+}
+
+export interface ImportContextRequest {
+  sources: ImportSource[];
+}
+
+/** Which context document a question (or fact) belongs to. */
+export type ContextSlot = "user" | "workspace";
+
+/**
+ * Whether a question asks for a fact, or asks the user to point the agent at
+ * richer source material (a `sourceHint` answer loops back into import).
+ */
+export type QuestionKind = "content" | "sourceHint";
+
+export interface ResidualQuestion {
+  id: string;
+  prompt: string;
+  slot: ContextSlot;
+  kind: QuestionKind;
+}
+
+/** Draft USER.md + WORKSPACE.md + residual questions from synthesis. */
+export interface ContextDraft {
+  user: string;
+  workspace: string;
+  questions: ResidualQuestion[];
+}
+
+export interface SynthesizeContextRequest {
+  provider?: string;
+  model?: string;
+}
+
 // ---------- Workspace-scoped agent CRUD ----------
 
 export interface Agent {

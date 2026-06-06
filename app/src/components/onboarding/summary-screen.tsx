@@ -1,10 +1,13 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Calendar, Sparkles } from "lucide-react";
+import { Button } from "@houston-ai/core";
+import { Calendar, Sparkles, UserRoundPen } from "lucide-react";
 import { useRoutines, useSkills } from "../../hooks/queries";
+import { useWorkspaceStore } from "../../stores/workspaces";
 import { ONBOARDING_SKILL_SLUG } from "./onboarding-skill";
 import { SkillCard } from "../skill-card";
 import { MissionDoneScreen } from "./mission-done-screen";
+import { ContextSetupDialog, useLastUsedProvider } from "../context-setup";
 import type { Agent } from "../../lib/types";
 
 interface FrameLabels {
@@ -51,9 +54,13 @@ export function SummaryScreen({
   onContinue,
 }: SummaryScreenProps) {
   const { t } = useTranslation("setup");
+  const { t: tc } = useTranslation("contextSetup");
   const agentPath = agent.folderPath;
   const { data: skills } = useSkills(agentPath);
   const { data: routines } = useRoutines(agentPath);
+  const currentWorkspace = useWorkspaceStore((s) => s.current);
+  const provider = useLastUsedProvider();
+  const [contextOpen, setContextOpen] = useState(false);
 
   const onboardingSkill = useMemo(() => {
     return skills?.find((s) => s.name === ONBOARDING_SKILL_SLUG) ?? null;
@@ -79,6 +86,29 @@ export function SummaryScreen({
       onContinue={onContinue}
     >
       <div className="flex flex-col gap-4">
+        {currentWorkspace && (
+          <section className="flex flex-col gap-2 rounded-2xl bg-secondary p-4">
+            <p className="text-sm font-semibold text-foreground">
+              {tc("title")}
+            </p>
+            <p className="text-xs text-muted-foreground">{tc("subtitle")}</p>
+            <Button
+              variant="secondary"
+              className="self-start"
+              onClick={() => setContextOpen(true)}
+            >
+              <UserRoundPen className="size-4" />
+              {tc("launcher.setUp")}
+            </Button>
+            <ContextSetupDialog
+              open={contextOpen}
+              onOpenChange={setContextOpen}
+              workspaceId={currentWorkspace.id}
+              provider={provider}
+            />
+          </section>
+        )}
+
         <section className="flex flex-col gap-2">
           <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
             <Sparkles className="size-3.5" aria-hidden />
