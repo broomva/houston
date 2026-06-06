@@ -105,6 +105,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && chown -R houston:houston /data
 
 COPY --from=build /src/target/release/houston-engine /usr/local/bin/houston-engine
+# PaaS-portable launcher: binds $PORT when a platform injects it (Railway,
+# Fly, Heroku); otherwise honors HOUSTON_BIND from the ENV below.
+COPY always-on/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 # Provider CLIs land under the houston user's home so the engine
 # resolves them via the standard `~/.local/bin` PATH entry and the
 # `$HOME/.composio/composio` lookup that's already baked in. The
@@ -126,4 +130,4 @@ ENV HOUSTON_HOME=/data/.houston \
     PATH=/data/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 EXPOSE 7777
-CMD ["/usr/local/bin/houston-engine"]
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]

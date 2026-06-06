@@ -1,4 +1,5 @@
-//! Integration tests for `/v1/health`, `/v1/version`, and auth.
+//! Integration tests for `/v1/health`, `/v1/version`, the public `/healthz`
+//! liveness probe, and auth.
 
 use houston_engine_server::{build_router, ServerConfig, ServerState};
 use std::net::SocketAddr;
@@ -72,6 +73,19 @@ async fn query_token_also_works() {
         .await
         .unwrap();
     assert_eq!(res.status(), 200);
+}
+
+#[tokio::test]
+async fn healthz_liveness_is_public() {
+    let (addr, _) = spawn_test_server().await;
+    // No bearer token — cloud platform liveness probes (Railway, Fly, K8s)
+    // can't send one. The real `/v1/*` routes stay authed.
+    let res = reqwest::get(format!("http://{addr}/healthz"))
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 200);
+    let body: serde_json::Value = res.json().await.unwrap();
+    assert_eq!(body["status"], "ok");
 }
 
 // ---------------------------------------------------------------------------
