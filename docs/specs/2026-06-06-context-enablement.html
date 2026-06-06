@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<!--
+meta:
+  title: Context Enablement — Workspace & Agent Context Bootstrapping
+  status: draft
+  phase: 1 (user + workspace context)
+  date: 2026-06-06
+  branch: context-enablement
+  audience: human (design review) — P18 Category C
+  supersedes: none
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Houston · Context Enablement Spec</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --panel2: #1c2330; --border: #30363d;
+    --text: #e6edf3; --muted: #8b949e; --faint: #6e7681;
+    --blue: #58a6ff; --green: #3fb950; --warn: #d29922; --danger: #f85149;
+    --purple: #bc8cff; --cyan: #56d4dd;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: var(--sans); line-height: 1.6; font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 24px 120px; }
+  header.hero {
+    padding: 64px 24px 40px; text-align: center;
+    background: radial-gradient(1200px 400px at 50% -120px, rgba(88,166,255,.18), transparent 70%);
+    border-bottom: 1px solid var(--border);
+  }
+  header.hero h1 { font-size: 2.3rem; margin: 0 0 8px; letter-spacing: -.02em; }
+  header.hero .sub { color: var(--muted); font-size: 1.05rem; max-width: 720px; margin: 0 auto; }
+  .badges { margin-top: 20px; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  .badge {
+    font-family: var(--mono); font-size: .74rem; padding: 4px 10px; border-radius: 999px;
+    border: 1px solid var(--border); background: var(--panel); color: var(--muted);
+  }
+  .badge.draft { color: var(--warn); border-color: rgba(210,153,34,.4); }
+  .badge.phase { color: var(--green); border-color: rgba(63,185,80,.4); }
+  nav.toc {
+    position: sticky; top: 0; z-index: 10; background: rgba(13,17,23,.85);
+    backdrop-filter: blur(8px); border-bottom: 1px solid var(--border);
+    padding: 12px 24px; margin-bottom: 40px;
+  }
+  nav.toc ul { list-style: none; margin: 0 auto; padding: 0; max-width: 1040px; display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: .85rem; }
+  nav.toc a { color: var(--muted); text-decoration: none; }
+  nav.toc a:hover { color: var(--blue); }
+  section { margin: 56px 0; scroll-margin-top: 64px; }
+  h2 { font-size: 1.5rem; margin: 0 0 6px; letter-spacing: -.01em; display: flex; align-items: baseline; gap: 12px; }
+  h2 .n { font-family: var(--mono); font-size: .9rem; color: var(--blue); }
+  h2 + .lead { color: var(--muted); margin: 0 0 24px; }
+  h3 { font-size: 1.1rem; margin: 32px 0 12px; }
+  p { margin: 12px 0; }
+  code { font-family: var(--mono); font-size: .86em; background: var(--panel2); padding: 1px 6px; border-radius: 5px; color: var(--cyan); }
+  pre { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; overflow-x: auto; font-family: var(--mono); font-size: .82rem; line-height: 1.55; }
+  pre code { background: none; padding: 0; color: var(--text); }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 22px 24px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 720px) { .grid2 { grid-template-columns: 1fr; } }
+  table { width: 100%; border-collapse: collapse; margin: 18px 0; font-size: .9rem; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; }
+  td code { white-space: nowrap; }
+  .tag { font-family: var(--mono); font-size: .72rem; padding: 2px 8px; border-radius: 6px; border: 1px solid var(--border); }
+  .tag.eng { color: var(--purple); border-color: rgba(188,140,255,.4); }
+  .tag.app { color: var(--cyan); border-color: rgba(86,212,221,.4); }
+  .tag.docs { color: var(--faint); }
+  .callout { border-left: 3px solid var(--blue); background: var(--panel2); padding: 12px 18px; border-radius: 0 8px 8px 0; margin: 18px 0; }
+  .callout.warn { border-color: var(--warn); }
+  .callout.danger { border-color: var(--danger); }
+  .callout.good { border-color: var(--green); }
+  .callout .label { font-family: var(--mono); font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); display: block; margin-bottom: 4px; }
+  svg { max-width: 100%; height: auto; display: block; }
+  .fig { margin: 24px 0; }
+  .fig figcaption { color: var(--faint); font-size: .82rem; text-align: center; margin-top: 8px; font-family: var(--mono); }
+  ul.clean { list-style: none; padding-left: 0; }
+  ul.clean li { padding: 6px 0 6px 26px; position: relative; }
+  ul.clean li::before { content: "▸"; position: absolute; left: 4px; color: var(--blue); }
+  .deferred li::before { content: "⏸"; color: var(--faint); }
+  .step-row { display: flex; gap: 14px; align-items: flex-start; padding: 14px 0; border-bottom: 1px solid var(--border); }
+  .step-row .num { font-family: var(--mono); font-size: .8rem; color: var(--bg); background: var(--blue); border-radius: 6px; padding: 3px 9px; flex-shrink: 0; font-weight: 700; }
+  .kvs { display: grid; grid-template-columns: 140px 1fr; gap: 8px 18px; font-size: .9rem; }
+  .kvs dt { color: var(--muted); font-family: var(--mono); font-size: .82rem; }
+  .kvs dd { margin: 0; }
+  footer { color: var(--faint); font-size: .82rem; text-align: center; padding-top: 40px; border-top: 1px solid var(--border); margin-top: 80px; }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <h1>Context Enablement</h1>
+  <p class="sub">Proactive, import-first bootstrapping of workspace &amp; agent context — so a new Houston user never faces a blank context, and an existing one can improve it.</p>
+  <div class="badges">
+    <span class="badge draft">status: draft</span>
+    <span class="badge phase">phase 1 · user + workspace context</span>
+    <span class="badge">branch: context-enablement</span>
+    <span class="badge">2026-06-06</span>
+  </div>
+</header>
+
+<nav class="toc">
+  <ul>
+    <li><a href="#model">1 · Context model</a></li>
+    <li><a href="#isolation">2 · Isolation</a></li>
+    <li><a href="#gap">3 · The gap</a></li>
+    <li><a href="#flow">4 · Enablement flow</a></li>
+    <li><a href="#sources">5 · Import sources</a></li>
+    <li><a href="#engine">6 · Engine surface</a></li>
+    <li><a href="#app">7 · App surface</a></li>
+    <li><a href="#privacy">8 · Privacy</a></li>
+    <li><a href="#phasing">9 · Phasing</a></li>
+    <li><a href="#testing">10 · Testing</a></li>
+    <li><a href="#open">11 · Open items</a></li>
+  </ul>
+</nav>
+
+<div class="wrap">
+
+<!-- ============================================ 1 -->
+<section id="model">
+  <h2><span class="n">01</span> The context model: two layers, three scopes</h2>
+  <p class="lead">The prompt a provider CLI sees is <code>&lt;product_prompt&gt;</code> + <code>---</code> + <code>&lt;agent_context&gt;</code>. The product layer is compiled into the app binary; the agent-context layer is assembled from disk at every session start.</p>
+
+  <figure class="fig">
+  <svg viewBox="0 0 960 430" font-family="ui-monospace, monospace" font-size="13">
+    <defs>
+      <marker id="arr" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+        <path d="M0,0 L7,3 L0,6 Z" fill="#58a6ff"/>
+      </marker>
+    </defs>
+    <!-- product layer -->
+    <rect x="20" y="20" width="280" height="120" rx="10" fill="#161b22" stroke="#bc8cff" stroke-width="1.5"/>
+    <text x="38" y="46" fill="#bc8cff" font-weight="bold">PRODUCT LAYER</text>
+    <text x="38" y="68" fill="#8b949e">compiled into app binary</text>
+    <text x="38" y="90" fill="#e6edf3">app/src-tauri/src/houston_prompt/</text>
+    <text x="38" y="110" fill="#8b949e">voice · interaction loop ·</text>
+    <text x="38" y="126" fill="#8b949e">skills / routines / composio guidance</text>
+
+    <!-- agent context layer -->
+    <rect x="20" y="170" width="280" height="240" rx="10" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
+    <text x="38" y="196" fill="#58a6ff" font-weight="bold">AGENT-CONTEXT LAYER</text>
+    <text x="38" y="216" fill="#8b949e">build_agent_context() · engine</text>
+    <text x="38" y="244" fill="#e6edf3">• Working Directory block</text>
+    <text x="38" y="266" fill="#e6edf3">• Mode file</text>
+    <text x="38" y="288" fill="#e6edf3">• Learnings snapshot</text>
+    <text x="38" y="310" fill="#e6edf3">• Skills index</text>
+    <text x="38" y="332" fill="#3fb950">• Workspace Context block ★</text>
+    <text x="38" y="354" fill="#e6edf3">• Integrations block</text>
+    <text x="38" y="384" fill="#8b949e">(CLAUDE.md read by CLI itself)</text>
+
+    <!-- assembly -->
+    <line x1="300" y1="80"  x2="420" y2="200" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arr)"/>
+    <line x1="300" y1="290" x2="420" y2="220" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arr)"/>
+    <rect x="430" y="180" width="210" height="70" rx="10" fill="#1c2330" stroke="#30363d"/>
+    <text x="455" y="210" fill="#e6edf3">product + "---" +</text>
+    <text x="455" y="230" fill="#e6edf3">agent_context</text>
+
+    <line x1="640" y1="215" x2="740" y2="215" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arr)"/>
+    <rect x="750" y="180" width="190" height="70" rx="10" fill="#161b22" stroke="#3fb950" stroke-width="1.5"/>
+    <text x="775" y="210" fill="#3fb950" font-weight="bold">Provider CLI</text>
+    <text x="775" y="230" fill="#8b949e">claude / codex / gemini</text>
+  </svg>
+  <figcaption>★ = the workspace-shared slot this spec fills proactively</figcaption>
+  </figure>
+
+  <table>
+    <thead><tr><th>Scope</th><th>Lives in</th><th>Shared by</th><th>Edited by</th><th>Injected by</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong style="color:var(--purple)">Product</strong></td>
+        <td><code>app/src-tauri/src/houston_prompt/</code></td>
+        <td>every user &amp; agent</td>
+        <td>nobody (binary)</td>
+        <td>env <code>HOUSTON_APP_SYSTEM_PROMPT</code></td>
+      </tr>
+      <tr>
+        <td><strong style="color:var(--green)">Workspace</strong></td>
+        <td><code>&lt;ws&gt;/WORKSPACE.md</code> · <code>&lt;ws&gt;/USER.md</code></td>
+        <td>every agent in the workspace</td>
+        <td>user (Settings) + agent (carve-out)</td>
+        <td><code>workspace_context::build_prompt_section</code></td>
+      </tr>
+      <tr>
+        <td><strong style="color:var(--blue)">Agent</strong></td>
+        <td><code>&lt;agent&gt;/CLAUDE.md</code> · learnings · modes · skills · integrations</td>
+        <td>that one agent</td>
+        <td>user (tabs) + agent (within root)</td>
+        <td><code>build_agent_context</code> (CLAUDE.md by the CLI)</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout">
+    <span class="label">Key fact</span>
+    Workspace files are <strong>never seeded</strong>. They exist only once written; until then the prompt renders <code>(empty so far…)</code> so the agent knows the slot exists and is authorized to fill it. This spec adds a <em>proactive</em> path to fill them instead of waiting for the user to type or for the agent to opportunistically capture.
+  </div>
+</section>
+
+<!-- ============================================ 2 -->
+<section id="isolation">
+  <h2><span class="n">02</span> How isolation occurs</h2>
+  <p class="lead">Three mechanisms. Each agent is walled to its own root; the workspace layer is the single, deliberate hole.</p>
+
+  <figure class="fig">
+  <svg viewBox="0 0 960 320" font-family="ui-monospace, monospace" font-size="12.5">
+    <!-- workspace box -->
+    <rect x="20" y="20" width="920" height="280" rx="12" fill="#10151c" stroke="#3fb950" stroke-width="1.5" stroke-dasharray="6 4"/>
+    <text x="40" y="46" fill="#3fb950" font-weight="bold">~/.houston/workspaces/Acme/  (workspace dir)</text>
+
+    <!-- shared files -->
+    <rect x="40" y="62" width="300" height="64" rx="8" fill="#161b22" stroke="#3fb950"/>
+    <text x="56" y="86" fill="#3fb950">WORKSPACE.md · USER.md</text>
+    <text x="56" y="106" fill="#8b949e">shared · carve-out read/write</text>
+
+    <!-- agent A -->
+    <rect x="40" y="150" width="280" height="130" rx="10" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
+    <text x="56" y="176" fill="#58a6ff" font-weight="bold">Sales agent/</text>
+    <text x="56" y="198" fill="#e6edf3">CLAUDE.md · .houston/ · .agents/</text>
+    <text x="56" y="220" fill="#8b949e">working dir = THIS dir only</text>
+    <rect x="56" y="234" width="248" height="32" rx="6" fill="#0d1117" stroke="#30363d"/>
+    <text x="68" y="255" fill="#f85149">⛔ cannot read sibling roots</text>
+
+    <!-- agent B -->
+    <rect x="350" y="150" width="280" height="130" rx="10" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
+    <text x="366" y="176" fill="#58a6ff" font-weight="bold">Recruiting agent/</text>
+    <text x="366" y="198" fill="#e6edf3">CLAUDE.md · .houston/ · .agents/</text>
+    <text x="366" y="220" fill="#8b949e">working dir = THIS dir only</text>
+    <rect x="366" y="234" width="248" height="32" rx="6" fill="#0d1117" stroke="#30363d"/>
+    <text x="378" y="255" fill="#f85149">⛔ cannot read sibling roots</text>
+
+    <!-- carve-out arrows -->
+    <path d="M190,150 L190,128" stroke="#3fb950" stroke-width="1.5" fill="none"/>
+    <path d="M490,150 L300,128" stroke="#3fb950" stroke-width="1.5" fill="none" stroke-dasharray="4 3"/>
+    <text x="650" y="180" fill="#8b949e">the green arrows are the</text>
+    <text x="650" y="200" fill="#8b949e">ONLY parent-dir access</text>
+    <text x="650" y="220" fill="#8b949e">an agent has — explicit</text>
+    <text x="650" y="240" fill="#8b949e">carve-out for the 2 files.</text>
+  </svg>
+  </figure>
+
+  <ul class="clean">
+    <li><strong>Filesystem scoping (the hard wall).</strong> First block of every agent prompt = <code># Working Directory — MANDATORY</code>: all file I/O restricted to <code>&lt;agent-root&gt;</code>. Each agent has its own root, so agents can't see each other's files.</li>
+    <li><strong>The one deliberate hole.</strong> <code>build_prompt_section</code> injects parent-dir <code>WORKSPACE.md</code> + <code>USER.md</code> and <em>explicitly authorizes</em> reading/writing those two paths as "an exception to your working-directory rule." Nothing else in the parent is reachable.</li>
+    <li><strong>Session ownership.</strong> A per-<code>working_dir</code> guard means one session owns a directory at a time; a second session in the same folder gets a conflict, not a false file-attribution. Different agents/worktrees run in parallel.</li>
+  </ul>
+  <p>Workspace marker = presence of <code>&lt;ws&gt;/.houston/</code>. No marker → <code>build_prompt_section</code> returns <code>None</code> (test dirs and ad-hoc working dirs stay clean).</p>
+</section>
+
+<!-- ============================================ 3 -->
+<section id="gap">
+  <h2><span class="n">03</span> The gap this closes</h2>
+  <p class="lead">Onboarding never captures the workspace layer. Today <code>WORKSPACE.md</code> / <code>USER.md</code> fill only two ways, both reactive:</p>
+  <div class="grid2">
+    <div class="panel">
+      <h3 style="margin-top:0">Manual</h3>
+      <p>User hand-types in <strong>Settings → Workspace → Shared context</strong> (<code>workspace-context.tsx</code>, plain markdown editors over <code>GET|PUT /v1/workspaces/:id/context</code>).</p>
+    </div>
+    <div class="panel">
+      <h3 style="margin-top:0">Opportunistic</h3>
+      <p>An agent writes the files mid-chat <em>if</em> the user happens to share something — the passive mechanism the carve-out enables.</p>
+    </div>
+  </div>
+  <div class="callout warn">
+    <span class="label">Missing</span>
+    No proactive elicitation. No import from existing knowledge. No agent-context estimation. A new user lands in an empty workspace and must either know to fill Settings or hope the agent asks. <strong>This spec adds an import-first, proactive enablement flow.</strong>
+  </div>
+</section>
+
+<!-- ============================================ 4 -->
+<section id="flow">
+  <h2><span class="n">04</span> The enablement flow</h2>
+  <p class="lead">Import-first, ask-residuals-last — not a form. The flow mirrors the workspace's own governance principle: read existing context first, ask the user only for the irreducible residuals.</p>
+
+  <figure class="fig">
+  <svg viewBox="0 0 960 250" font-family="ui-monospace, monospace" font-size="12.5">
+    <defs>
+      <marker id="arr2" markerWidth="10" markerHeight="10" refX="7" refY="3" orient="auto">
+        <path d="M0,0 L7,3 L0,6 Z" fill="#56d4dd"/>
+      </marker>
+    </defs>
+    <g>
+      <rect x="14" y="40" width="150" height="70" rx="9" fill="#161b22" stroke="#56d4dd"/>
+      <text x="30" y="68" fill="#e6edf3" font-weight="bold">1. Sources</text>
+      <text x="30" y="88" fill="#8b949e">folder · ~/.claude ·</text>
+      <text x="30" y="102" fill="#8b949e">vault · export file</text>
+
+      <rect x="200" y="40" width="150" height="70" rx="9" fill="#161b22" stroke="#56d4dd"/>
+      <text x="216" y="68" fill="#e6edf3" font-weight="bold">2. Import</text>
+      <text x="216" y="88" fill="#8b949e">parse · cap · redact</text>
+      <text x="216" y="102" fill="#8b949e">→ bounded corpus</text>
+
+      <rect x="386" y="40" width="150" height="70" rx="9" fill="#161b22" stroke="#bc8cff"/>
+      <text x="402" y="68" fill="#bc8cff" font-weight="bold">3. Synthesize</text>
+      <text x="402" y="88" fill="#8b949e">ephemeral session</text>
+      <text x="402" y="102" fill="#8b949e">→ ContextDraft</text>
+
+      <rect x="572" y="40" width="150" height="70" rx="9" fill="#161b22" stroke="#d29922"/>
+      <text x="588" y="64" fill="#d29922" font-weight="bold">4. Residual Qs</text>
+      <text x="588" y="84" fill="#8b949e">adaptive — only</text>
+      <text x="588" y="98" fill="#8b949e">the gaps</text>
+
+      <rect x="758" y="40" width="150" height="70" rx="9" fill="#161b22" stroke="#3fb950"/>
+      <text x="774" y="64" fill="#3fb950" font-weight="bold">5. Review</text>
+      <text x="774" y="84" fill="#8b949e">edit · approve</text>
+      <text x="774" y="98" fill="#8b949e">→ PUT context</text>
+
+      <line x1="164" y1="75" x2="196" y2="75" stroke="#56d4dd" stroke-width="1.5" marker-end="url(#arr2)"/>
+      <line x1="350" y1="75" x2="382" y2="75" stroke="#56d4dd" stroke-width="1.5" marker-end="url(#arr2)"/>
+      <line x1="536" y1="75" x2="568" y2="75" stroke="#56d4dd" stroke-width="1.5" marker-end="url(#arr2)"/>
+      <line x1="722" y1="75" x2="754" y2="75" stroke="#56d4dd" stroke-width="1.5" marker-end="url(#arr2)"/>
+
+      <!-- no-import fallback -->
+      <path d="M89,110 C89,170 600,170 647,114" stroke="#6e7681" stroke-width="1.3" fill="none" stroke-dasharray="5 4" marker-end="url(#arr2)"/>
+      <text x="250" y="190" fill="#6e7681">no import → skip to a short fixed question set (fallback)</text>
+    </g>
+  </svg>
+  </figure>
+
+  <div class="step-row"><span class="num">1</span><div><strong>Choose sources.</strong> The UI offers folder pick, <code>~/.claude</code> scan, vault path, and drop-an-export-file. Per-source opt-in. Skippable entirely.</div></div>
+  <div class="step-row"><span class="num">2</span><div><strong>Import.</strong> Engine parses each source into one bounded, redacted corpus (caps on bytes, file count, token budget). Returns a summary (docs read, bytes, what was skipped and why — surfaced, never swallowed).</div></div>
+  <div class="step-row"><span class="num">3</span><div><strong>Synthesize.</strong> The corpus runs through the user's <em>already-authed</em> provider CLI as an ephemeral bootstrapper session, returning a <code>ContextDraft</code> = draft <code>USER.md</code> + draft <code>WORKSPACE.md</code> + a list of residual questions. No API keys, data stays local.</div></div>
+  <div class="step-row"><span class="num">4</span><div><strong>Ask residuals — including source guidance.</strong> Two kinds of question. <em>Content</em> questions fill facts the corpus couldn't answer. <em>Source-hint</em> questions are the agent proactively asking the user <strong>where the best rich content lives</strong> ("where do you keep your richest project notes?", "is there a folder or notes app I should look at?"). Answering a source-hint with a path <strong>loops back to step 2</strong> (import that source) and re-synthesizes. When there was no import at all, fall back to a short fixed content set (role, goals, company, work style, key people, recurring tasks).</div></div>
+  <div class="step-row"><span class="num">5</span><div><strong>Review &amp; write.</strong> User edits the draft in the same <code>InstructionsContent</code> editor used in Settings, merges in answers, approves. UI assembles the final markdown and calls the existing <code>PUT /v1/workspaces/:id/context</code>. Nothing is written until approval.</div></div>
+
+  <div class="callout good">
+    <span class="label">Reuse, don't reinvent</span>
+    Synthesis is an <strong>engine session</strong>, not a new LLM client. The accept step is the <strong>existing</strong> context route. Reactivity (writes → events → UI refresh) is free. The new surface is just: corpus ingestion + a synthesis prompt + two routes + the wizard UI.
+  </div>
+</section>
+
+<!-- ============================================ 5 -->
+<section id="sources">
+  <h2><span class="n">05</span> Import sources</h2>
+  <p class="lead">Five parsers behind one <code>ImportSourceKind</code> enum. All run locally. Web exports are supported as "drop the file you exported" (async — the user does it whenever the export arrives), so they don't block first-run.</p>
+  <table>
+    <thead><tr><th>Kind</th><th>Input</th><th>Parser does</th><th>First-run?</th></tr></thead>
+    <tbody>
+      <tr><td><code>LocalFolder</code></td><td>a folder path</td><td>depth/size-capped walk over an extension allowlist (.md/.txt/.json/…); flatten to text</td><td style="color:var(--green)">yes</td></tr>
+      <tr><td><code>ClaudeHome</code></td><td><code>~/.claude</code></td><td>read <code>CLAUDE.md</code> + <code>projects/*/memory/*</code> + project role files — already structured</td><td style="color:var(--green)">yes (richest)</td></tr>
+      <tr><td><code>ObsidianVault</code></td><td>a vault path</td><td>walk <code>.md</code>, keep <code>[[wikilinks]]</code> as entity hints</td><td style="color:var(--green)">yes (if path known)</td></tr>
+      <tr><td><code>ChatGptExport</code></td><td><code>conversations.json</code></td><td>parse the export tree, extract message text per conversation</td><td style="color:var(--warn)">async (emailed)</td></tr>
+      <tr><td><code>ClaudeAiExport</code></td><td><code>conversations.json</code></td><td>parse Claude.ai export, extract message text</td><td style="color:var(--warn)">async (emailed)</td></tr>
+    </tbody>
+  </table>
+  <div class="callout">
+    <span class="label">Bounding &amp; safety</span>
+    Every parser enforces caps (max bytes, max files, per-doc truncation) and a token budget on the assembled corpus, plus obvious-secret redaction (API-key / token shaped strings). The corpus is staged on disk, never held only in memory, and is the single input handed to synthesis.
+  </div>
+</section>
+
+<!-- ============================================ 6 -->
+<section id="engine">
+  <h2><span class="n">06</span> Engine surface <span class="tag eng">engine</span></h2>
+  <p class="lead">New module <code>houston-engine-core::context_bootstrap</code>. Two new routes. Accept reuses the existing context route.</p>
+
+  <h3>Types</h3>
+<pre><code>// type-safety rule: domain concepts are enums
+pub enum ImportSourceKind {
+    LocalFolder, ClaudeHome, ObsidianVault, ChatGptExport, ClaudeAiExport,
+}
+pub struct ImportSource { pub kind: ImportSourceKind, pub path: PathBuf }
+
+pub struct ImportSummary {
+    pub docs: usize, pub bytes: u64,
+    pub skipped: Vec&lt;SkippedDoc&gt;,   // {path, reason} — surfaced, not swallowed
+    pub truncated: bool,
+}
+
+pub struct ContextDraft {
+    pub user: String,                // draft USER.md
+    pub workspace: String,           // draft WORKSPACE.md
+    pub questions: Vec&lt;ResidualQuestion&gt;,
+}
+pub struct ResidualQuestion {
+    pub id: String,
+    pub prompt: String,
+    pub slot: Slot,                  // User | Workspace
+    pub kind: QuestionKind,          // Content | SourceHint
+}
+// Content   = a fact the corpus didn't answer ("what's your role?")
+// SourceHint = the agent asking the USER to point it at richer content
+//              ("where do you keep your best notes / project docs?").
+//              Answering with a path loops BACK into import + re-synthesize.
+pub enum QuestionKind { Content, SourceHint }</code></pre>
+
+  <h3>Routes</h3>
+  <table>
+    <thead><tr><th>Method · path</th><th>Body</th><th>Returns</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td><code>POST /v1/workspaces/:id/context/import</code></td><td><code>{ sources: [{kind, path}] }</code></td><td><code>ImportSummary</code></td><td>stages corpus at <code>&lt;ws&gt;/.houston/context-import/</code></td></tr>
+      <tr><td><code>POST /v1/workspaces/:id/context/synthesize</code></td><td><code>{}</code> (uses staged corpus)</td><td><code>ContextDraft</code></td><td>runs ephemeral bootstrapper session</td></tr>
+      <tr><td><code>PUT /v1/workspaces/:id/context</code></td><td><code>{ user, workspace }</code></td><td><code>WorkspaceContext</code></td><td><strong>existing</strong> — the accept step</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Synthesis session</h3>
+  <p>Reuses <code>sessions::start</code> with a <code>systemPrompt</code> override + a synthetic session_key, producing <strong>no activity card</strong> (it must not pollute the board or the assistant's chat history). The bootstrapper prompt instructs: <em>from the material below, draft a short USER.md and WORKSPACE.md and list the residual questions you still need, as a single fenced JSON block</em>, terminated by a <code>[CONTEXT_DRAFT_COMPLETE]</code> marker. The prompt explicitly tells the bootstrapper that when the imported material is thin or absent it should emit <code>SourceHint</code> questions — asking the user to point at where their richest content lives — rather than guessing. A parser extracts the JSON block (same token-detection pattern the onboarding tutorial already uses).</p>
+  <div class="callout good">
+    <span class="label">Source guidance (added 2026-06-06)</span>
+    The agent doesn't just ask for facts, it asks the user <strong>where to find the best material</strong>. A <code>SourceHint</code> answer (a path) re-enters the import → synthesize loop, so a sparse first pass converges by having the user steer the agent to richer sources.
+  </div>
+  <p>Wire types in <code>houston-engine-protocol</code>; TS methods in <code>@houston-ai/engine-client</code>.</p>
+</section>
+
+<!-- ============================================ 7 -->
+<section id="app">
+  <h2><span class="n">07</span> App surface <span class="tag app">app</span></h2>
+  <p class="lead">App-first (extract to <code>ui/</code> later if mobile needs it). Native pickers are OS glue; everything else composes existing pieces.</p>
+  <div class="grid2">
+    <div class="panel">
+      <h3 style="margin-top:0">Pickers <span class="tag app">app/src-tauri</span></h3>
+      <p>Tauri folder/file picker (allowed OS-native glue). Returns path strings to the engine routes. The only Tauri-command surface added.</p>
+    </div>
+    <div class="panel">
+      <h3 style="margin-top:0">Wizard <span class="tag app">app/src/components/context-setup/</span></h3>
+      <p>source chooser → import progress → synthesize → review/edit (<code>InstructionsContent</code>) → adaptive residual questions → assemble → <code>PUT</code>.</p>
+    </div>
+  </div>
+  <h3>Entry points (one capability, three doors)</h3>
+  <ul class="clean">
+    <li><strong>Onboarding Summary CTA</strong> — "Set up your context", optional + skippable (protects the activation metric; core 7-mission flow stays lean).</li>
+    <li><strong>Settings → Shared context empty-state</strong> — "Set up automatically" button instead of a bare textarea.</li>
+    <li><strong>Settings → Shared context, non-empty</strong> — "Improve" runs the same flow with current content fed back as a source.</li>
+  </ul>
+  <div class="callout">
+    <span class="label">Voice rule</span>
+    The UI never says <code>USER.md</code> / files / JSON. It says "tell your assistant about you and your work." (Product-voice invariant — agents' users are non-technical.)
+  </div>
+  <div class="callout danger">
+    <span class="label">No silent failures</span>
+    Import/synthesis errors surface as toasts with a Report-bug affordance; partial imports report what was skipped and why. No <code>.catch(() =&gt; [])</code>, no log-and-continue.
+  </div>
+</section>
+
+<!-- ============================================ 8 -->
+<section id="privacy">
+  <h2><span class="n">08</span> Privacy model</h2>
+  <p class="lead">This reads a non-technical user's personal data (chat history, notes, files). Trust is load-bearing.</p>
+  <ul class="clean">
+    <li><strong>Explicit per-source opt-in.</strong> Nothing is read until the user picks a source and confirms.</li>
+    <li><strong>Local-only processing.</strong> Synthesis runs through the user's own authed CLI on their machine. Houston has no server in the desktop loop; the corpus never leaves the device.</li>
+    <li><strong>Disclosure.</strong> Each source states what it will read before it runs.</li>
+    <li><strong>Review-before-save.</strong> The draft is shown and editable; nothing is written to context until the user approves.</li>
+    <li><strong>Redaction.</strong> Obvious secrets are stripped from the corpus before synthesis.</li>
+  </ul>
+</section>
+
+<!-- ============================================ 9 -->
+<section id="phasing">
+  <h2><span class="n">09</span> Phasing</h2>
+  <div class="grid2">
+    <div class="panel">
+      <h3 style="margin-top:0; color:var(--green)">Phase 1 (this spec)</h3>
+      <ul class="clean">
+        <li>Workspace layer: draft <code>USER.md</code> + <code>WORKSPACE.md</code></li>
+        <li>All 5 import sources</li>
+        <li>Adaptive residual questions + fixed fallback</li>
+        <li>Separate always-on surface + 3 entry points</li>
+      </ul>
+    </div>
+    <div class="panel">
+      <h3 style="margin-top:0; color:var(--faint)">Deferred</h3>
+      <ul class="clean deferred">
+        <li><strong>Agent estimation</strong> — propose agents + drafted job descriptions from the corpus (propose-never-auto-create)</li>
+        <li>Per-agent <code>CLAUDE.md</code> enrichment from sources</li>
+        <li>Re-sync / scheduled re-import as the corpus grows</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================ 10 -->
+<section id="testing">
+  <h2><span class="n">10</span> Testing</h2>
+  <table>
+    <thead><tr><th>Layer</th><th>What</th></tr></thead>
+    <tbody>
+      <tr><td><span class="tag eng">rust</span></td><td>corpus ingestion per source kind (fixtures: fake export json, fake vault dir, fake <code>~/.claude</code> layout, a folder); byte/file/extension caps; secret redaction; <code>ContextDraft</code> JSON-block parser.</td></tr>
+      <tr><td><span class="tag eng">rust</span></td><td>route handlers: staging path, summary shape, error surfacing.</td></tr>
+      <tr><td><span class="tag app">ts</span></td><td><code>bunx tsc --noEmit</code>; wizard step machine; picker wiring; i18n <code>check-locales</code> (en/es/pt, no em dashes).</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ============================================ 11 -->
+<section id="open">
+  <h2><span class="n">11</span> Open verification items</h2>
+  <p class="lead">Resolved during the relevant chunk, not blockers to approval.</p>
+  <dl class="kvs">
+    <dt>Chunk B</dt><dd>Ephemeral-session-without-activity-card plumbing — confirm a raw <code>sessions::start</code> with a synthetic key + <code>systemPrompt</code> override produces no board card.</dd>
+    <dt>Chunk C</dt><dd>Confirm <code>&lt;ws&gt;/.houston/</code> exists in production at workspace creation (the workspace marker), so corpus staging there is valid; else stage elsewhere.</dd>
+    <dt>Chunk E</dt><dd>Whether residual questions render inline in the wizard or as a follow-up chat turn — decide once the draft shape is real.</dd>
+  </dl>
+</section>
+
+<footer>
+  Houston · Context Enablement · draft 2026-06-06 · branch <code>context-enablement</code><br>
+  Phase 1 = user + workspace context. Agent estimation deferred. Review before implementation.
+</footer>
+
+</div>
+</body>
+</html>
