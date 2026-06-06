@@ -2889,6 +2889,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "houston-sandbox"
+version = "0.4.17"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uuid",
+ "wiremock",
+]
+
+[[package]]
 name = "houston-scheduler"
 version = "0.4.21"
 dependencies = [

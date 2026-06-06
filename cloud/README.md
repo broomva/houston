@@ -6,7 +6,14 @@ Managed deployment service for Houston Engine. We run it for you.
 Dev builds a product on Houston Engine. Doesn't want to run infra. Pushes to Houston Cloud. Cloud provisions + monitors + bills. Dev focuses on agents.
 
 ## Status
-**TBD — placeholder.** Directory exists to reserve the name. No code yet.
+**TBD — placeholder** for the managed *product* (provisioning, billing, dashboards).
+
+The **compute substrate** it will run on has started: the engine's cloud
+sandbox control surface lives in `engine/houston-sandbox` — one `SandboxPolicy`
+schema → a pluggable isolation-backend registry, with `local` and
+`fly`/Firecracker backends plus a benchmark harness (`sandbox-bench`). See
+`knowledge-base/cloud-compute.md` for the two-planes model and how to dogfood +
+benchmark it.
 
 ## Relation to other products
 - Hosts **Houston Engine** instances for third-party devs

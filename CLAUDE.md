@@ -69,6 +69,7 @@ Need specific knowledge? Load on demand:
 - Engine wire protocol (REST + WS) → `knowledge-base/engine-protocol.md`
 - Provider error taxonomy + classifier contract → `knowledge-base/provider-errors.md`
 - `houston-engine` binary ops → `knowledge-base/engine-server.md`
+- Cloud compute plane (sandbox control surface, Axis A/B, `houston-sandbox` crate, `sandbox-bench`) → `knowledge-base/cloud-compute.md`
 - Bundled CLIs (codex universal, composio per-arch) + runtime claude-code installer → `knowledge-base/cli-bundling.md`
 - Windows testing loop from a Mac (UTM VM, SSH bridge, cross-compile, log fetch) → `knowledge-base/windows-testing.md`
 - Custom frontend on `houston-engine` (integration reference) → `examples/smartbooks/README.md`
