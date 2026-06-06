@@ -19,7 +19,10 @@ fn spawn_only_cfg() -> BackendConfig {
 
 #[tokio::test]
 async fn full_lifecycle_provision_to_stop() {
-    let runner = backend("local").unwrap().connect(&spawn_only_cfg()).unwrap();
+    let runner = backend("local")
+        .unwrap()
+        .connect(&spawn_only_cfg())
+        .unwrap();
 
     let handle = runner
         .provision(&houston_sandbox::SandboxPolicy::default())
@@ -48,7 +51,10 @@ async fn full_lifecycle_provision_to_stop() {
 
 #[tokio::test]
 async fn exec_carries_nonzero_exit() {
-    let runner = backend("local").unwrap().connect(&spawn_only_cfg()).unwrap();
+    let runner = backend("local")
+        .unwrap()
+        .connect(&spawn_only_cfg())
+        .unwrap();
     let handle = runner
         .provision(&houston_sandbox::SandboxPolicy::default())
         .await
@@ -64,8 +70,14 @@ async fn exec_carries_nonzero_exit() {
 
 #[tokio::test]
 async fn unknown_sandbox_is_rejected() {
-    let runner = backend("local").unwrap().connect(&spawn_only_cfg()).unwrap();
+    let runner = backend("local")
+        .unwrap()
+        .connect(&spawn_only_cfg())
+        .unwrap();
     let ghost = SandboxHandle::provisioned(SandboxId("does-not-exist".into()));
-    assert!(runner.exec(&ghost, ExecRequest::new(["true"])).await.is_err());
+    assert!(runner
+        .exec(&ghost, ExecRequest::new(["true"]))
+        .await
+        .is_err());
     assert!(runner.stop(&ghost).await.is_err());
 }

@@ -151,13 +151,10 @@ impl SandboxRunner for LocalRunner {
             return Err(BackendError::UnknownSandbox(handle.id.to_string()));
         };
         if let Some(mut child) = sb.child.take() {
-            child
-                .kill()
-                .await
-                .map_err(|e| BackendError::Stop {
-                    backend: BACKEND_ID,
-                    detail: format!("kill child: {e}"),
-                })?;
+            child.kill().await.map_err(|e| BackendError::Stop {
+                backend: BACKEND_ID,
+                detail: format!("kill child: {e}"),
+            })?;
         }
         tokio::fs::remove_dir_all(&sb.workdir)
             .await

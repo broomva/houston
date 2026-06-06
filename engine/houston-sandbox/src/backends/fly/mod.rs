@@ -131,7 +131,10 @@ impl FlyRunner {
         if let Some(b) = body {
             req = req.json(&b);
         }
-        let resp = req.send().await.map_err(|e| op_err(format!("POST {url}: {e}")))?;
+        let resp = req
+            .send()
+            .await
+            .map_err(|e| op_err(format!("POST {url}: {e}")))?;
         Self::ensure_ok(op_err, resp).await
     }
 

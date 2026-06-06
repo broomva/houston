@@ -87,7 +87,13 @@ impl LocalRunner {
             ("HOUSTON_BIND".into(), "127.0.0.1:0".into()),
             ("HOUSTON_NO_PARENT_WATCHDOG".into(), "1".into()),
         ];
-        env.extend(policy.identity.env.iter().map(|(k, v)| (k.clone(), v.clone())));
+        env.extend(
+            policy
+                .identity
+                .env
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone())),
+        );
         env
     }
 }

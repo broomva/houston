@@ -151,7 +151,10 @@ mod tests {
     #[test]
     fn parses_port_from_banner() {
         let line = "HOUSTON_ENGINE_LISTENING port=54032 token=abc";
-        assert_eq!(parse_endpoint(line).as_deref(), Some("http://127.0.0.1:54032"));
+        assert_eq!(
+            parse_endpoint(line).as_deref(),
+            Some("http://127.0.0.1:54032")
+        );
     }
 
     #[test]

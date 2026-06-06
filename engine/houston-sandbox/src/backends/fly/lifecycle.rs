@@ -13,7 +13,8 @@ impl SandboxRunner for FlyRunner {
     async fn provision(&self, policy: &SandboxPolicy) -> Result<SandboxHandle, BackendError> {
         ensure_enforceable(policy)?;
         let req = api::build_create_request(policy, &self.image);
-        let body = serde_json::to_value(&req).map_err(|e| provision_err(format!("serialize create request: {e}")))?;
+        let body = serde_json::to_value(&req)
+            .map_err(|e| provision_err(format!("serialize create request: {e}")))?;
         let resp = self
             .post(provision_err, "", Some(body))
             .await?

@@ -37,7 +37,10 @@ async fn missing_token_is_not_configured_not_a_silent_fallback() {
     std::env::remove_var("FLY_API_TOKEN");
     let result = backend("fly").unwrap().connect(&BackendConfig::default());
     assert!(
-        matches!(result, Err(BackendError::NotConfigured { backend: "fly", .. })),
+        matches!(
+            result,
+            Err(BackendError::NotConfigured { backend: "fly", .. })
+        ),
         "expected NotConfigured for missing creds"
     );
 }
@@ -82,10 +85,13 @@ async fn drives_full_lifecycle_against_mock_fly_api() {
     // Lock the exec wire shape: `cmd` STRING (not a `command` array) + timeout.
     Mock::given(method("POST"))
         .and(path(format!("{base}/m-123/exec")))
-        .and(body_json(serde_json::json!({"cmd": "echo hi", "timeout": 300})))
-        .respond_with(ResponseTemplate::new(200).set_body_json(
-            serde_json::json!({"exit_code": 0, "stdout": "hi\n", "stderr": ""}),
+        .and(body_json(
+            serde_json::json!({"cmd": "echo hi", "timeout": 300}),
         ))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(serde_json::json!({"exit_code": 0, "stdout": "hi\n", "stderr": ""})),
+        )
         .mount(&server)
         .await;
     Mock::given(method("POST"))
@@ -145,7 +151,10 @@ async fn non_2xx_surfaces_a_typed_error_with_body() {
     match err {
         BackendError::Provision { detail, .. } => {
             assert!(detail.contains("422"), "status surfaced: {detail}");
-            assert!(detail.contains("image not found"), "body surfaced: {detail}");
+            assert!(
+                detail.contains("image not found"),
+                "body surfaced: {detail}"
+            );
         }
         other => panic!("expected Provision error, got {other:?}"),
     }

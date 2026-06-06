@@ -125,7 +125,10 @@ mod tests {
     #[test]
     fn injects_standalone_engine_wiring() {
         let req = build_create_request(&SandboxPolicy::default(), "img");
-        assert_eq!(req.config.env.get("HOUSTON_NO_PARENT_WATCHDOG").unwrap(), "1");
+        assert_eq!(
+            req.config.env.get("HOUSTON_NO_PARENT_WATCHDOG").unwrap(),
+            "1"
+        );
         assert_eq!(req.config.env.get("HOUSTON_BIND").unwrap(), "0.0.0.0:8080");
     }
 

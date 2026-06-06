@@ -68,7 +68,10 @@ async fn real_main() -> Result<(), String> {
 
     if opts.smoke {
         if report.failures > 0 {
-            return Err(format!("smoke FAILED: {} lifecycle error(s)", report.failures));
+            return Err(format!(
+                "smoke FAILED: {} lifecycle error(s)",
+                report.failures
+            ));
         }
         println!("smoke PASS — full lifecycle ok on `{}`", report.backend);
     }
@@ -119,16 +122,26 @@ impl Opts {
             match a.as_str() {
                 "--backend" => o.backend = take(args, &mut i)?,
                 "--iterations" => {
-                    o.iterations = take(args, &mut i)?.parse().map_err(|_| "bad --iterations")?
+                    o.iterations = take(args, &mut i)?
+                        .parse()
+                        .map_err(|_| "bad --iterations")?
                 }
                 "--concurrency" => {
-                    o.concurrency = take(args, &mut i)?.parse().map_err(|_| "bad --concurrency")?
+                    o.concurrency = take(args, &mut i)?
+                        .parse()
+                        .map_err(|_| "bad --concurrency")?
                 }
                 "--launch" => {
-                    o.launch = take(args, &mut i)?.split_whitespace().map(String::from).collect()
+                    o.launch = take(args, &mut i)?
+                        .split_whitespace()
+                        .map(String::from)
+                        .collect()
                 }
                 "--exec" => {
-                    o.exec = take(args, &mut i)?.split_whitespace().map(String::from).collect()
+                    o.exec = take(args, &mut i)?
+                        .split_whitespace()
+                        .map(String::from)
+                        .collect()
                 }
                 "--out" => o.out = Some(take(args, &mut i)?),
                 "--report-md" => o.report_md = Some(take(args, &mut i)?),

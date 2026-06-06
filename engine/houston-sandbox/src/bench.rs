@@ -50,7 +50,10 @@ pub struct BenchReport {
 pub async fn run(cfg: BenchConfig) -> Result<BenchReport, BackendError> {
     let runner = cfg.backend.connect(&cfg.backend_config)?;
     let metrics: Arc<Mutex<HashMap<&'static str, PhaseTimings>>> = Arc::new(Mutex::new(
-        PHASES.iter().map(|p| (*p, PhaseTimings::default())).collect(),
+        PHASES
+            .iter()
+            .map(|p| (*p, PhaseTimings::default()))
+            .collect(),
     ));
     let failures = Arc::new(Mutex::new(0usize));
     let gate = Arc::new(Semaphore::new(cfg.concurrency.max(1)));
@@ -123,7 +126,9 @@ async fn one_lifecycle(
     out.push(("start", ms(t)));
 
     let t = Instant::now();
-    runner.exec(&handle, ExecRequest::new(exec_cmd.iter().cloned())).await?;
+    runner
+        .exec(&handle, ExecRequest::new(exec_cmd.iter().cloned()))
+        .await?;
     out.push(("exec", ms(t)));
 
     let t = Instant::now();
