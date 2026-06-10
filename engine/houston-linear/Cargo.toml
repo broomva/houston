@@ -1,6 +1,6 @@
 [package]
 name = "houston-linear"
-version = "0.4.17"
+version = "0.4.12"
 edition = "2021"
 description = "Linear project-tracker integration — GraphQL client, OAuth, AgentSession protocol, webhook verification, polling reconcile (transport-neutral)"
 license = "MIT"

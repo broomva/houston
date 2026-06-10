@@ -2,6 +2,7 @@
 
 pub mod diagnostics;
 pub mod os;
+pub mod diagnostics;
 pub mod portable;
 pub mod terminal;
 pub mod update;

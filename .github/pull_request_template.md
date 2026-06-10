@@ -1,28 +1,44 @@
-<!--
-Read CONTRIBUTING.md "Before you open a PR" first. PRs that don't fit get closed.
--->
-
-## What this scratches for you
-
-<!-- Required. A bug you hit, or a feature you'll use in Houston. "Thought it would be nice" is not an answer. -->
-
-## Linked issue
-
-<!-- Required for anything >50 LOC or any new tooling/docs/governance. Bug fixes under 50 LOC can skip. -->
+### Issue for this PR
 
 Closes #
 
-## Summary
+### Type of change
 
-<!-- 1-3 bullets on what changed. -->
+- [ ] Bug fix (`fix:`)
+- [ ] New feature (`feat:`)
+- [ ] Refactor / code improvement (`refactor:` / `style:`)
+- [ ] Documentation (`docs:`)
+- [ ] Chore / tooling / CI (`chore:` / `ci:` / `test:`)
 
--
 
-## Checklist
+### What does this PR do?
 
-- [ ] I read the diff myself before opening this PR (AI-assisted is fine, AI-unreviewed is not)
-- [ ] I have no other open PRs on this repo
-- [ ] `pnpm typecheck` passes
-- [ ] `cargo check --workspace` passes (if Rust touched)
-- [ ] `cargo test --workspace` passes (if Rust touched)
-- [ ] No external frameworks/methodology imported into `knowledge-base/` or `docs/`
+Please describe the problem, the changes you made, and why they work. It is expected that you understand why your changes work — if you do not, at least say so, so a reviewer knows how much to trust the PR.
+
+**If you paste a large clearly AI generated description here your PR may be ignored or closed!**
+
+### How did you verify your code works?
+
+List the commands you ran and what you manually tested. Examples:
+
+- `cargo test --workspace` (engine)
+- `pnpm typecheck` (ui/)
+- `cd app && pnpm tsc --noEmit` (app frontend)
+- `cd app/src-tauri && cargo check` (app backend)
+- `cd app && pnpm check-locales` (i18n)
+- Manual: ran `pnpm tauri dev`, walked through the affected flow in the desktop app
+
+If the engine changed, did you rebuild the sidecar (`cargo build -p houston-engine-server`) before re-running `pnpm tauri dev`?
+
+### Screenshots / recordings
+
+_If this is a UI change, please include a screenshot or recording._
+
+### Checklist
+
+- [ ] I have tested my changes locally
+- [ ] I have not included unrelated changes in this PR
+- [ ] Tests added or updated for the behavior I changed (engine: `cargo test`; ui/app: matching test files)
+- [ ] No file exceeds 200 lines (CSS 500) — extracted modules if needed
+
+_If you do not follow this template your PR will be automatically rejected._

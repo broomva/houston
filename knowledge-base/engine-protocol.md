@@ -112,7 +112,7 @@ module.
 |---|---|---|
 | POST | `/v1/agents/:agent_path/sessions` | Start turn |
 | POST | `/v1/agents/:agent_path/sessions/onboarding` | Start onboarding turn |
-| POST | `/v1/agents/:agent_path/sessions/:key:cancel` | SIGTERM CLI |
+| POST | `/v1/agents/:agent_path/sessions/:key:cancel` | Kill CLI process tree (verified, SIGKILL escalation); a tombstone catches a CLI that spawns after Stop |
 | GET | `/v1/agents/:agent_path/sessions/:key/history` | Load chat history |
 | POST | `/v1/sessions/summarize` | Activity title/description |
 
@@ -408,6 +408,20 @@ per-agent context from disk (working directory, mode overrides,
 skills index, integrations). Final prompt =
 `<product_prompt>\n\n---\n\n<agent_context>`. Onboarding sessions use
 `HOUSTON_APP_ONBOARDING_PROMPT` as an additional suffix.
+
+The assembled prompt reaches the provider CLIs via **scratch files,
+never argv** (`houston-terminal-manager::prompt_scratch`): codex gets a
+per-session profile at `$CODEX_HOME/houston-tmp-*.config.toml` selected
+with `-p` (requires the file-based profiles in codex ≥ 0.137 — keep the
+`cli-deps.json` pin at or above that), claude gets a temp file via
+`--system-prompt-file`. Argv tokens are capped at 32,767 chars total by
+Windows `CreateProcessW`; carrying the prompt inline (`-c
+developer_instructions=…` / `--system-prompt <text>`) broke every spawn
+with os error 206 once an agent's accumulated context outgrew the limit.
+Growth is also bounded at the source: `workspace_context` caps the
+`WORKSPACE.md`/`USER.md` prompt share (12 KB / 4 KB, newest-first, with
+an explicit omission marker) the same way `learnings_context` caps
+learnings — files on disk are never trimmed.
 
 ### Feed-item streaming needs a reducer
 

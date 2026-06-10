@@ -855,6 +855,28 @@ export class HoustonClient {
     return this.request("POST", "/watcher/stop");
   }
 
+  // ---------- claude (runtime installer) ----------
+
+  /**
+   * Snapshot of the runtime Claude Code install — used by the
+   * onboarding "Sign in with Anthropic" card so it can show a clear
+   * "couldn't reach Anthropic" / "Retry" instead of the misleading
+   * "install it yourself" hint that fires for every other
+   * `cli_installed=false` case (issue #231).
+   */
+  claudeStatus(): Promise<ClaudeStatus> {
+    return this.request("GET", "/claude/status");
+  }
+  /**
+   * Kick off a fresh install in the background. The HTTP request
+   * returns immediately; progress + completion stream over the WS
+   * firehose as `ClaudeCliInstalling` / `ClaudeCliReady` /
+   * `ClaudeCliFailed` events.
+   */
+  claudeInstall(): Promise<void> {
+    return this.request("POST", "/claude/install");
+  }
+
   // ---------- trackers (V1: linear) ----------
 
   /**
@@ -974,28 +996,6 @@ export class HoustonClient {
       undefined,
       orgId ? { workspacePath, orgId } : { workspacePath },
     );
-  }
-
-  // ---------- claude (runtime installer) ----------
-
-  /**
-   * Snapshot of the runtime Claude Code install — used by the
-   * onboarding "Sign in with Anthropic" card so it can show a clear
-   * "couldn't reach Anthropic" / "Retry" instead of the misleading
-   * "install it yourself" hint that fires for every other
-   * `cli_installed=false` case (issue #231).
-   */
-  claudeStatus(): Promise<ClaudeStatus> {
-    return this.request("GET", "/claude/status");
-  }
-  /**
-   * Kick off a fresh install in the background. The HTTP request
-   * returns immediately; progress + completion stream over the WS
-   * firehose as `ClaudeCliInstalling` / `ClaudeCliReady` /
-   * `ClaudeCliFailed` events.
-   */
-  claudeInstall(): Promise<void> {
-    return this.request("POST", "/claude/install");
   }
 
   // ---------- composio ----------

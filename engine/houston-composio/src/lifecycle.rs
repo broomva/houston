@@ -134,9 +134,13 @@ async fn forced_logout(db: &Database) {
     }
 
     if !install::is_installed() {
-        tracing::info!("[composio:lifecycle] forced logout: CLI not installed, nothing to clear");
+        tracing::info!(
+            "[composio:lifecycle] forced logout: CLI not installed, nothing to clear"
+        );
         if let Err(e) = db.set_preference(PREF_FORCED_LOGOUT_V2, "1").await {
-            tracing::warn!("[composio:lifecycle] failed to persist forced-logout marker: {e}");
+            tracing::warn!(
+                "[composio:lifecycle] failed to persist forced-logout marker: {e}"
+            );
         }
         return;
     }

@@ -8,7 +8,6 @@ import { useHoustonInit } from "./hooks/use-houston-init";
 import { useSessionEvents } from "./hooks/use-session-events";
 import { useAgentInvalidation } from "./hooks/use-agent-invalidation";
 import { useAnalyticsSubscriber } from "./hooks/use-analytics-subscriber";
-import { useClaudeCliEvents } from "./hooks/use-claude-cli-events";
 import { useIntegrationTracker } from "./hooks/use-integration-tracker";
 import { useWorkspaceStore } from "./stores/workspaces";
 import { useAgentStore } from "./stores/agents";
@@ -30,7 +29,6 @@ export default function App() {
   useSessionEvents();
   useAgentInvalidation();
   useAnalyticsSubscriber();
-  useClaudeCliEvents();
   useIntegrationTracker();
   // Prefetch Composio data on launch so the integrations tab opens instantly.
   useConnections();

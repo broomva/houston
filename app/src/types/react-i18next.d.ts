@@ -26,11 +26,11 @@ import type checkpoints from "../locales/en/checkpoints.json";
 import type claudeHooks from "../locales/en/claudeHooks.json";
 import type git from "../locales/en/git.json";
 import type portable from "../locales/en/portable.json";
+import type context from "../locales/en/context.json";
+import type contextSetup from "../locales/en/contextSetup.json";
 import type tile from "../locales/en/tile.json";
 import type timeline from "../locales/en/timeline.json";
 import type tracker from "../locales/en/tracker.json";
-import type context from "../locales/en/context.json";
-import type contextSetup from "../locales/en/contextSetup.json";
 
 declare module "react-i18next" {
   interface CustomTypeOptions {
@@ -55,11 +55,11 @@ declare module "react-i18next" {
       claudeHooks: typeof claudeHooks;
       git: typeof git;
       portable: typeof portable;
+      context: typeof context;
+      contextSetup: typeof contextSetup;
       tile: typeof tile;
       timeline: typeof timeline;
       tracker: typeof tracker;
-      context: typeof context;
-      contextSetup: typeof contextSetup;
     };
   }
 }

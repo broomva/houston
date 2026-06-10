@@ -18,7 +18,6 @@
 //! phase once `agent_store` is ported.
 
 pub mod ask_user;
-mod compaction;
 mod control;
 pub mod cross_review;
 pub mod file_changes;
@@ -36,7 +35,7 @@ mod workdir_locks;
 
 use crate::agents::prompt as agent_prompt;
 use crate::paths::EnginePaths;
-use crate::CoreResult;
+use crate::{CoreError, CoreResult};
 use control::{
     SessionControl, SessionIdentity, SessionTurnGuard, SessionTurnLocks, WorkdirActivity,
 };
@@ -44,12 +43,12 @@ use houston_agents_conversations::session_id_tracker::SessionIdTracker;
 use houston_agents_conversations::session_pids::SessionPidMap;
 use houston_agents_conversations::session_runner::{self, PersistOptions};
 use houston_db::Database;
-use houston_terminal_manager::{CompactTrigger, FeedItem, Provider};
+use houston_terminal_manager::{FeedItem, Provider};
 use houston_ui_events::{DynEventSink, HoustonEvent};
 use std::path::{Path, PathBuf};
 use workdir_locks::{WorkdirLocks, WorkdirSessionGuard};
 
-pub use provider::{resolve_effort, resolve_provider, ResolvedProvider};
+pub use provider::{resolve_provider, ResolvedProvider};
 
 /// Engine-owned session state. Cheap to clone.
 #[derive(Default, Clone)]
@@ -73,13 +72,16 @@ pub struct SessionRuntime {
 }
 
 impl SessionRuntime {
-    /// Acquire the per-folder session lock, waiting if another session is
-    /// already running in that folder. Routines use this to serialize runs
-    /// that share a working directory — two routines scheduled for the same
-    /// time both run, one after the other, instead of the second being
-    /// dropped (issue #362). The guard releases on drop.
-    pub(crate) async fn acquire_workdir(&self, working_dir: &Path) -> WorkdirSessionGuard {
-        self.workdir_locks.acquire(working_dir).await
+    pub(crate) async fn try_acquire_workdir(
+        &self,
+        working_dir: &Path,
+    ) -> CoreResult<WorkdirSessionGuard> {
+        self.workdir_locks
+            .try_acquire(working_dir)
+            .await
+            .ok_or_else(|| {
+                CoreError::Conflict("another mission is already running in this folder".to_string())
+            })
     }
 
     async fn acquire_turn(&self, id: &SessionIdentity) -> SessionTurnGuard {
@@ -114,11 +116,6 @@ pub struct StartParams {
     /// `--effort <value>`. Accepted values vary per provider; the caller is
     /// responsible for passing something each CLI understands (e.g. "medium").
     pub effort: Option<String>,
-    /// When `true`, the frontend has detected the context window is nearly
-    /// full and wants this turn to run on a freshly-compacted session.
-    /// Honored only when there's an existing session to compact; ignored on
-    /// the first turn. See [`compaction`].
-    pub compact: bool,
 }
 
 /// Start a session turn. The request is accepted immediately. Turns with the
@@ -217,7 +214,6 @@ async fn run_start(
         provider,
         model,
         effort,
-        compact,
     } = params;
 
     if !agent_dir.exists() {
@@ -305,111 +301,7 @@ async fn run_start(
         .session_ids
         .get_for_session(&agent_key, &working_dir, &session_key, provider)
         .await;
-    let agent_path = agent_dir.to_string_lossy().to_string();
-    let mut resume_id = sid_handle.get().await;
-    // What the CLI actually receives this turn. Normally the user's prompt;
-    // for a forced compaction it becomes the summary-seeded prompt, while the
-    // persisted/displayed user message stays the original (see `persist`).
-    let mut cli_prompt = prompt.clone();
-
-    // Forced autocompact (mechanism B): the frontend flagged this turn because
-    // the context window is nearly full. Summarize the visible history,
-    // abandon the current resume id (kept in `.history` so the chat stays
-    // visible), and run this turn on a FRESH provider session seeded with the
-    // summary. The user's chat_feed is never mutated.
-    if compact {
-        if let Some(old_id) = resume_id.clone() {
-            match compaction::build_compaction_seed(
-                &db,
-                &working_dir,
-                &agent_dir,
-                &session_key,
-                &prompt,
-                provider,
-                model.as_deref(),
-            )
-            .await
-            {
-                Ok(Some(seed)) => {
-                    cli_prompt = seed.prompt;
-                    // Emit the marker live so the divider appears immediately,
-                    // and persist it under the OLD session id so it sits at the
-                    // boundary between the prior turns and the fresh session.
-                    events.emit(HoustonEvent::FeedItem {
-                        agent_path: agent_path.clone(),
-                        session_key: session_key.clone(),
-                        item: FeedItem::ContextCompacted {
-                            trigger: CompactTrigger::Proactive,
-                            pre_tokens: seed.pre_tokens,
-                        },
-                    });
-                    let data = serde_json::json!({
-                        "trigger": "proactive",
-                        "pre_tokens": seed.pre_tokens,
-                    })
-                    .to_string();
-                    if let Err(e) = db
-                        .add_chat_feed_item_by_session(&old_id, "context_compacted", &data, &source)
-                        .await
-                    {
-                        tracing::warn!(
-                            "[sessions] failed to persist compaction marker: {e} (session_key={session_key})"
-                        );
-                    }
-                    sid_handle.clear_current_preserving_history().await;
-                    resume_id = None;
-                    tracing::info!(
-                        "[sessions] proactively compacted context for session_key={session_key} (abandoned resume_id={old_id})"
-                    );
-                }
-                Ok(None) => {
-                    tracing::info!(
-                        "[sessions] compaction requested but no visible history to summarize (session_key={session_key})"
-                    );
-                }
-                Err(e) => {
-                    // Non-fatal: fall back to a normal resume. The provider's
-                    // own auto-compaction is the backstop, and the context
-                    // indicator still shows the high fill so it stays visible.
-                    tracing::warn!(
-                        "[sessions] context compaction failed, continuing with normal resume: {e} (session_key={session_key})"
-                    );
-                }
-            }
-        }
-    }
-
-    let resume_recovery_prompt = if resume_id.is_some() {
-        let activity_hint = match activity_hint_for_session_key(&agent_dir, &session_key) {
-            Ok(hint) => hint,
-            Err(e) => {
-                tracing::warn!(
-                    "[sessions] failed to load activity hint for resume recovery: {e} (session_key={session_key})"
-                );
-                None
-            }
-        };
-        match history::resume_recovery_prompt(
-            &db,
-            &working_dir,
-            Some(&agent_dir),
-            &session_key,
-            &prompt,
-            activity_hint.as_deref(),
-        )
-        .await
-        {
-            Ok(prompt) => prompt,
-            Err(e) => {
-                tracing::warn!(
-                    "[sessions] failed to build resume recovery prompt: {e} (session_key={session_key})"
-                );
-                None
-            }
-        }
-    } else {
-        None
-    };
+    let resume_id = sid_handle.get().await;
 
     tracing::info!(
         "[sessions] start agent_dir={} session_key={} resume_id={:?} provider={}",
@@ -418,6 +310,8 @@ async fn run_start(
         resume_id,
         provider,
     );
+
+    let agent_path = agent_dir.to_string_lossy().to_string();
 
     // Flip the matching board activity to "running" synchronously, before
     // the CLI subprocess spawns. Desktop UI pre-wrote this from the send
@@ -474,9 +368,8 @@ async fn run_start(
         events,
         agent_path.clone(),
         session_key.clone(),
-        cli_prompt,
+        prompt,
         resume_id,
-        resume_recovery_prompt,
         working_dir,
         system_prompt,
         Some(sid_handle),
@@ -687,36 +580,6 @@ fn write_mcp_config_file(
     Ok(Some(path))
 }
 
-fn activity_hint_for_session_key(
-    agent_dir: &Path,
-    session_key: &str,
-) -> CoreResult<Option<String>> {
-    let implied_id = session_key.strip_prefix("activity-");
-    let activity = crate::agents::activity::list(agent_dir)?
-        .into_iter()
-        .find(|item| {
-            item.session_key.as_deref() == Some(session_key)
-                || implied_id.is_some_and(|id| item.id == id)
-        });
-    let Some(activity) = activity else {
-        return Ok(None);
-    };
-
-    let title = activity.title.trim();
-    let description = activity.description.trim();
-    let hint = match (
-        title.is_empty(),
-        description.is_empty(),
-        title == description,
-    ) {
-        (true, true, _) => None,
-        (false, true, _) | (false, false, true) => Some(title.to_string()),
-        (true, false, _) => Some(description.to_string()),
-        (false, false, false) => Some(format!("{title}\n\n{description}")),
-    };
-    Ok(hint)
-}
-
 /// Cancel a running or queued session. On Unix sends `SIGTERM` to the
 /// provider process group; on Windows issues `taskkill /PID <pid> /T /F`
 /// (terminates the process tree). Emits a `Stopped by user` feed item +
@@ -760,26 +623,7 @@ pub async fn cancel(
             }
         }
     } else if !had_queued {
-        match crate::agents::activity::clear_stale_running_by_session_key(
-            Path::new(agent_path),
-            session_key,
-        ) {
-            Ok(Some(_)) => {
-                tracing::info!(
-                    "[sessions] cleared stale running activity on cancel session_key={session_key}"
-                );
-                events.emit(HoustonEvent::ActivityChanged {
-                    agent_path: agent_path.to_string(),
-                });
-            }
-            Ok(None) => return false,
-            Err(e) => {
-                tracing::warn!(
-                    "[sessions] failed to clear stale running activity on cancel: {e} (session_key={session_key})"
-                );
-                return false;
-            }
-        }
+        return false;
     }
 
     events.emit(HoustonEvent::FeedItem {
@@ -853,7 +697,6 @@ pub async fn start_onboarding(
     let product_prompt = format!("{app_system_prompt}{app_onboarding_prompt}");
 
     let resolved = resolve_provider(&agent_dir);
-    let effort = resolve_effort(&agent_dir, resolved.provider);
 
     start(
         rt,
@@ -870,8 +713,7 @@ pub async fn start_onboarding(
             source: Some("desktop".into()),
             provider: resolved.provider,
             model: resolved.model,
-            effort,
-            compact: false,
+            effort: None,
         },
     )
     .await
@@ -944,7 +786,6 @@ mod tests {
                     provider: "openai".parse().unwrap(),
                     model: None,
                     effort: None,
-                    compact: false,
                 },
             ),
         )
@@ -955,93 +796,5 @@ mod tests {
         assert_eq!(accepted, "chat-test");
         assert!(cancel(&rt, &events, &dir.path().to_string_lossy(), "chat-test",).await);
         drop(guard);
-    }
-
-    #[tokio::test]
-    async fn acquire_workdir_serializes_same_folder() {
-        // The primitive behind serial routine execution (issue #362): two
-        // acquisitions of the same folder queue — the second only proceeds
-        // after the first guard drops.
-        let rt = SessionRuntime::default();
-        let dir = TempDir::new().unwrap();
-
-        let first = rt.acquire_workdir(dir.path()).await;
-        assert!(
-            timeout(Duration::from_millis(20), rt.acquire_workdir(dir.path()))
-                .await
-                .is_err(),
-            "second acquire on a busy folder must wait"
-        );
-        drop(first);
-        assert!(
-            timeout(Duration::from_millis(50), rt.acquire_workdir(dir.path()))
-                .await
-                .is_ok(),
-            "second acquire proceeds once the folder frees"
-        );
-    }
-
-    #[tokio::test]
-    async fn acquire_workdir_allows_distinct_folders_concurrently() {
-        let rt = SessionRuntime::default();
-        let one = TempDir::new().unwrap();
-        let two = TempDir::new().unwrap();
-
-        let _a = rt.acquire_workdir(one.path()).await;
-        // Different folder — no contention even while the first is held.
-        assert!(
-            timeout(Duration::from_millis(50), rt.acquire_workdir(two.path()))
-                .await
-                .is_ok()
-        );
-    }
-
-    #[tokio::test]
-    async fn cancel_clears_stale_running_activity_without_pid_or_queue() {
-        let rt = SessionRuntime::default();
-        let dir = TempDir::new().unwrap();
-        let activity = crate::agents::activity::create(
-            dir.path(),
-            crate::agents::types::NewActivity {
-                title: "stale".into(),
-                description: String::new(),
-                agent: None,
-                worktree_path: None,
-                provider: None,
-                model: None,
-            },
-        )
-        .unwrap();
-        let session_key = activity.session_key.clone().expect("session key");
-        let events: DynEventSink = Arc::new(NoopEventSink);
-
-        assert!(cancel(&rt, &events, &dir.path().to_string_lossy(), &session_key).await);
-
-        let persisted = crate::agents::activity::list(dir.path()).unwrap();
-        assert_eq!(persisted[0].status, "needs_you");
-    }
-
-    #[test]
-    fn activity_hint_for_recovery_uses_title_and_description() {
-        let dir = TempDir::new().unwrap();
-        let activity = crate::agents::activity::create(
-            dir.path(),
-            crate::agents::types::NewActivity {
-                title: "Investigate stuck chat".into(),
-                description: "Original prompt details".into(),
-                agent: None,
-                worktree_path: None,
-                provider: None,
-                model: None,
-            },
-        )
-        .unwrap();
-        let session_key = activity.session_key.expect("session key");
-
-        let hint = activity_hint_for_session_key(dir.path(), &session_key)
-            .expect("hint lookup")
-            .expect("hint");
-
-        assert_eq!(hint, "Investigate stuck chat\n\nOriginal prompt details");
     }
 }

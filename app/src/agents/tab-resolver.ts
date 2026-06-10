@@ -7,11 +7,6 @@ import FilesTab from "../components/tabs/files-tab";
 import IntegrationsTab from "../components/tabs/integrations-tab";
 import JobDescriptionTab from "../components/tabs/job-description-tab";
 import RoutinesTab from "../components/tabs/routines-tab";
-// Fork-only feature-flagged power-user tabs (advanced.git_panel / .timeline /
-// .checkpoints). Upstream #291 dropped the per-agent custom-tab pipeline; these
-// three survive because they are flag-gated extras layered on the standard set,
-// not per-agent declarations. The other former custom tabs (events/configure/
-// prompts/learnings/skills/config) were retired with that refactor.
 import GitTab from "../components/tabs/git-tab";
 import TimelineTab from "../components/tabs/timeline-tab";
 import CheckpointsTab from "../components/tabs/checkpoints-tab";
@@ -23,7 +18,6 @@ const BUILTIN_TABS: Record<string, ComponentType<TabProps>> = {
   integrations: IntegrationsTab,
   "job-description": JobDescriptionTab,
   routines: RoutinesTab,
-  // Fork flag-gated extras (see import note above).
   git: GitTab,
   timeline: TimelineTab,
   checkpoints: CheckpointsTab,

@@ -38,7 +38,13 @@ import { shouldAutocompactForSession } from "./autocompact";
 export { withAttachmentPaths } from "./attachment-message";
 
 interface EngineCallOptions {
+  /** Show a red error toast on failure. Default true. Set false when the
+   *  caller renders the failure with its own inline UI. */
   toast?: boolean;
+  /** Capture the failure to Sentry even when `toast` is false. Default true so
+   *  user-initiated failures always reach crash reporting; set false only for
+   *  genuinely fire-and-forget calls or ones with their own report path. */
+  capture?: boolean;
 }
 
 /** Wrap an engine call and surface errors as toasts unless caller handles them inline. */
@@ -65,9 +71,25 @@ async function surfaceError(
   const message =
     err instanceof Error ? err.message : typeof err === "string" ? err : String(err);
   logger.error(`[engine:${label}] ${message}`, context ? JSON.stringify(context) : undefined);
-  if (options?.toast === false) return;
-  const { showErrorToast } = await import("./error-toast");
-  showErrorToast(label, message);
+
+  // Aborted requests (user typed again, navigated away, cancelled a sign-in)
+  // are expected, not failures — never toast or report them.
+  if (err instanceof Error && err.name === "AbortError") return;
+
+  const shouldToast = options?.toast !== false;
+  const shouldCapture = options?.capture !== false;
+  if (!shouldToast && !shouldCapture) return;
+
+  const { showErrorToast, reportError } = await import("./error-toast");
+  if (shouldToast) {
+    // Pass the real error so Sentry records the true failure stack (the
+    // engine-client frame), not a synthetic one — this also fixes Sentry
+    // grouping (engine errors used to collapse into a single issue).
+    showErrorToast(label, message, err);
+  } else {
+    // toast suppressed but capture wanted: report to Sentry without a toast.
+    reportError(label, message, err);
+  }
 }
 
 // ─── Workspaces ────────────────────────────────────────────────────────
@@ -451,9 +473,9 @@ export const tauriConnections = {
       { toolkit },
       // Fire-and-forget — caller awaits only to know the request was
       // accepted; the result is delivered as a `ComposioConnectionAdded`
-      // WS event. Don't toast; failure here just means we fall back to
-      // the client-side watcher.
-      { toast: false },
+      // WS event. Don't toast OR report; failure here just means we fall
+      // back to the client-side watcher.
+      { toast: false, capture: false },
     ),
   startOAuth: () =>
     call<StartLoginResponse>("start_composio_oauth", async () => {
@@ -906,7 +928,9 @@ export const tauriClaude = {
       "claude_install",
       () => getEngine().claudeInstall(),
       undefined,
-      { toast: false },
+      // Both callers (onboarding card + ClaudeCliFailed retry) surface and
+      // report failures themselves; capture here would double-report.
+      { toast: false, capture: false },
     ),
 };
 

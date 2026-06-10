@@ -20,6 +20,7 @@ import {
   resolveEffectiveLocale,
   localeToApply,
   activeWorkspaceLocale,
+  localeGateIsLoading,
   type SupportedLocale,
 } from "./locale";
 
@@ -42,11 +43,11 @@ import checkpointsEn from "../locales/en/checkpoints.json";
 import claudeHooksEn from "../locales/en/claudeHooks.json";
 import gitEn from "../locales/en/git.json";
 import portableEn from "../locales/en/portable.json";
+import contextEn from "../locales/en/context.json";
+import contextSetupEn from "../locales/en/contextSetup.json";
 import tileEn from "../locales/en/tile.json";
 import timelineEn from "../locales/en/timeline.json";
 import trackerEn from "../locales/en/tracker.json";
-import contextEn from "../locales/en/context.json";
-import contextSetupEn from "../locales/en/contextSetup.json";
 import commonEs from "../locales/es/common.json";
 import setupEs from "../locales/es/setup.json";
 import legalEs from "../locales/es/legal.json";
@@ -66,11 +67,11 @@ import checkpointsEs from "../locales/es/checkpoints.json";
 import claudeHooksEs from "../locales/es/claudeHooks.json";
 import gitEs from "../locales/es/git.json";
 import portableEs from "../locales/es/portable.json";
+import contextEs from "../locales/es/context.json";
+import contextSetupEs from "../locales/es/contextSetup.json";
 import tileEs from "../locales/es/tile.json";
 import timelineEs from "../locales/es/timeline.json";
 import trackerEs from "../locales/es/tracker.json";
-import contextEs from "../locales/es/context.json";
-import contextSetupEs from "../locales/es/contextSetup.json";
 import commonPt from "../locales/pt/common.json";
 import setupPt from "../locales/pt/setup.json";
 import legalPt from "../locales/pt/legal.json";
@@ -90,11 +91,11 @@ import checkpointsPt from "../locales/pt/checkpoints.json";
 import claudeHooksPt from "../locales/pt/claudeHooks.json";
 import gitPt from "../locales/pt/git.json";
 import portablePt from "../locales/pt/portable.json";
+import contextPt from "../locales/pt/context.json";
+import contextSetupPt from "../locales/pt/contextSetup.json";
 import tilePt from "../locales/pt/tile.json";
 import timelinePt from "../locales/pt/timeline.json";
 import trackerPt from "../locales/pt/tracker.json";
-import contextPt from "../locales/pt/context.json";
-import contextSetupPt from "../locales/pt/contextSetup.json";
 
 // Pure locale value-logic lives in ./locale (DOM/JSON-free, unit-tested).
 // Re-exported here so existing `from "../lib/i18n"` imports keep working.
@@ -106,6 +107,7 @@ export {
   resolveEffectiveLocale,
   localeToApply,
   activeWorkspaceLocale,
+  localeGateIsLoading,
 };
 export type { SupportedLocale };
 
@@ -153,11 +155,11 @@ const resources = {
     claudeHooks: claudeHooksEn,
     git: gitEn,
     portable: portableEn,
+    context: contextEn,
+    contextSetup: contextSetupEn,
     tile: tileEn,
     timeline: timelineEn,
     tracker: trackerEn,
-    context: contextEn,
-    contextSetup: contextSetupEn,
   },
   es: {
     common: commonEs,
@@ -179,11 +181,11 @@ const resources = {
     claudeHooks: claudeHooksEs,
     git: gitEs,
     portable: portableEs,
+    context: contextEs,
+    contextSetup: contextSetupEs,
     tile: tileEs,
     timeline: timelineEs,
     tracker: trackerEs,
-    context: contextEs,
-    contextSetup: contextSetupEs,
   },
   pt: {
     common: commonPt,
@@ -205,11 +207,11 @@ const resources = {
     claudeHooks: claudeHooksPt,
     git: gitPt,
     portable: portablePt,
+    context: contextPt,
+    contextSetup: contextSetupPt,
     tile: tilePt,
     timeline: timelinePt,
     tracker: trackerPt,
-    context: contextPt,
-    contextSetup: contextSetupPt,
   },
 } as const;
 
@@ -251,11 +253,11 @@ void i18n
       "claudeHooks",
       "git",
       "portable",
+      "context",
+      "contextSetup",
       "tile",
       "timeline",
       "tracker",
-      "context",
-      "contextSetup",
     ],
     interpolation: { escapeValue: false }, // react already escapes
     detection: {

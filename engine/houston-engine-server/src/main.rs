@@ -9,6 +9,7 @@ use houston_engine_server::{build_router, notify_dispatcher, ServerConfig, Serve
 use houston_tunnel::{EngineEndpoint, NotifyPolicy, TunnelClient, TunnelConfig};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
+use std::borrow::Cow;
 use std::io::{IsTerminal, Read};
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -26,6 +27,14 @@ struct EngineManifest<'a> {
 
 #[tokio::main]
 async fn main() {
+    // Sentry BEFORE tracing so the sentry_tracing layer wired into
+    // `init_tracing` has a live client from the first log line, and the panic
+    // handler is installed before any work runs. The guard is bound for the
+    // whole process lifetime — dropping it stops the transport from flushing.
+    // No-op (None) unless a SENTRY_DSN was injected (the desktop app does this
+    // at spawn; forks/dev/self-hosters without one stay silent).
+    let _sentry_guard = init_sentry();
+
     init_tracing();
 
     // Exit when the desktop app that owns us goes away, so we never become
@@ -241,7 +250,7 @@ fn spawn_tunnel_if_allocated(state: Arc<ServerState>, engine_port: u16) {
 }
 
 fn init_tracing() {
-    use tracing_subscriber::{fmt, EnvFilter};
+    use tracing_subscriber::{fmt, prelude::*, EnvFilter};
     let filter =
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,houston=debug"));
     // Write tracing to STDERR, never stdout. `tracing_subscriber::fmt()`
@@ -251,11 +260,80 @@ fn init_tracing() {
     // stderr into `engine.log`, while its stdout drain only forwards the
     // banner. Leaving the default stdout writer left `engine.log` empty
     // and leaked every trace onto stdout (gethouston/houston#240).
-    fmt()
-        .with_env_filter(filter)
-        .with_target(false)
-        .with_writer(std::io::stderr)
+    let fmt_layer = fmt::layer().with_target(false).with_writer(std::io::stderr);
+    // sentry_tracing maps tracing::error! -> Sentry event and warn!/info! ->
+    // breadcrumb (its default event_filter). No-op until `init_sentry` ran
+    // (empty SENTRY_DSN => no client), so safe to register unconditionally.
+    // Mirrors app/src-tauri/src/logging.rs. Keeping the default mapping means
+    // the engine's many intentional WARNs (tunnel allocation, git-bash
+    // extraction) stay breadcrumbs instead of spamming Sentry as events.
+    tracing_subscriber::registry()
+        .with(filter)
+        .with(fmt_layer)
+        .with(sentry_tracing::layer())
         .init();
+}
+
+/// Initialize Sentry for the engine process.
+///
+/// Gated on the `SENTRY_DSN` env var so the OPEN-SOURCE engine stays generic:
+/// the Houston desktop app injects its DSN at spawn (see
+/// `app/src-tauri/src/lib.rs`), and any other operator (Always On, a
+/// self-hoster) sets their own. Empty/unset DSN → `None`, every capture is a
+/// silent no-op. NEVER bake a DSN literal here.
+///
+/// Release + environment are honored from `SENTRY_RELEASE` / `SENTRY_ENVIRONMENT`
+/// when injected, so engine events share the app's `houston-app@<version>`
+/// release and resolve against the `houston-engine` debug files CI already
+/// uploads. Standalone deployments fall back to `houston-engine@<ENGINE_VERSION>`
+/// and a debug/release environment guess.
+///
+/// The returned guard MUST be held for the whole process lifetime.
+fn init_sentry() -> Option<sentry::ClientInitGuard> {
+    let dsn = std::env::var("SENTRY_DSN").unwrap_or_default();
+    if dsn.trim().is_empty() {
+        return None;
+    }
+    let release = resolve_sentry_release(std::env::var("SENTRY_RELEASE").ok());
+    let environment =
+        resolve_sentry_environment(std::env::var("SENTRY_ENVIRONMENT").ok(), cfg!(debug_assertions));
+    let guard = sentry::init((
+        dsn,
+        sentry::ClientOptions {
+            release: Some(release),
+            environment: Some(environment),
+            // No `auto_session_tracking` field: the engine's Cargo.toml leaves
+            // the `release-health` feature OFF (default-features = false), which
+            // cfg-gates that field out entirely. That is intentional — the
+            // desktop app owns session tracking; the engine must not
+            // double-count. Sessions stay off because the feature is absent.
+            ..Default::default()
+        },
+    ));
+    // Tag every engine event so the shared `houston-app` Sentry project can
+    // tell engine crashes apart from app / renderer crashes.
+    sentry::configure_scope(|scope| scope.set_tag("runtime", "engine"));
+    Some(guard)
+}
+
+/// Resolve the Sentry release string: honor an injected `SENTRY_RELEASE`
+/// (the app passes `houston-app@<version>` so engine + app share one release),
+/// else default to `houston-engine@<ENGINE_VERSION>`. Pure for testability.
+fn resolve_sentry_release(env_release: Option<String>) -> Cow<'static, str> {
+    match env_release {
+        Some(r) if !r.trim().is_empty() => Cow::Owned(r),
+        _ => Cow::Owned(format!("houston-engine@{ENGINE_VERSION}")),
+    }
+}
+
+/// Resolve the Sentry environment: honor an injected `SENTRY_ENVIRONMENT`, else
+/// `development` under debug builds and `production` otherwise (matching the
+/// app). Pure for testability.
+fn resolve_sentry_environment(env_environment: Option<String>, debug: bool) -> Cow<'static, str> {
+    match env_environment {
+        Some(e) if !e.trim().is_empty() => Cow::Owned(e),
+        _ => Cow::Borrowed(if debug { "development" } else { "production" }),
+    }
 }
 
 /// Exit the process when the parent that launched us closes our stdin.
@@ -348,8 +426,49 @@ fn write_manifest(cfg: &ServerConfig, port: u16) {
 
 #[cfg(test)]
 mod tests {
-    use super::{block_until_stdin_closed, watchdog_should_arm};
+    use super::{
+        block_until_stdin_closed, resolve_sentry_environment, resolve_sentry_release,
+        watchdog_should_arm,
+    };
+    use houston_engine_protocol::ENGINE_VERSION;
     use std::io::Cursor;
+
+    #[test]
+    fn sentry_release_honors_injected_value() {
+        // The app injects `houston-app@<version>` so engine events land on the
+        // same release as the app and resolve against the uploaded debug files.
+        assert_eq!(
+            resolve_sentry_release(Some("houston-app@0.4.17".into())),
+            "houston-app@0.4.17"
+        );
+    }
+
+    #[test]
+    fn sentry_release_falls_back_to_engine_version() {
+        // Standalone deployments (Always On / self-host) without an injected
+        // release get a sensible engine-scoped default.
+        let expected = format!("houston-engine@{ENGINE_VERSION}");
+        assert_eq!(resolve_sentry_release(None), expected);
+        // Blank/whitespace is treated as unset, not as a literal release.
+        assert_eq!(resolve_sentry_release(Some("   ".into())), expected);
+    }
+
+    #[test]
+    fn sentry_environment_honors_injected_value() {
+        assert_eq!(
+            resolve_sentry_environment(Some("staging".into()), true),
+            "staging"
+        );
+    }
+
+    #[test]
+    fn sentry_environment_defaults_by_build_profile() {
+        // No injection → debug builds report development, release builds prod.
+        assert_eq!(resolve_sentry_environment(None, true), "development");
+        assert_eq!(resolve_sentry_environment(None, false), "production");
+        // Blank is treated as unset.
+        assert_eq!(resolve_sentry_environment(Some("".into()), false), "production");
+    }
 
     #[test]
     fn watchdog_disabled_by_env_regardless_of_stdin() {

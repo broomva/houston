@@ -21,10 +21,13 @@
 //! the relay task emits [`HoustonEvent::ProviderLoginComplete`] so the
 //! frontend can close the sign-in dialog and refresh `providerStatus`.
 //!
-//! Same machinery handles desktop too: claude prints the URL
-//! unconditionally, but completes via its own local callback before
-//! the user needs to interact with the Houston dialog. The dialog
-//! pops, then auto-dismisses on `ProviderLoginComplete`.
+//! The same machinery runs for a co-located desktop client too — claude
+//! prints the URL unconditionally — but there the CLI opens the user's own
+//! browser and finishes via its localhost callback, so the desktop frontend
+//! drops `ProviderLoginUrl` (`osIsTauri()`, issue #453) and shows no dialog;
+//! it just waits for `ProviderLoginComplete`. The URL relay is frontend-
+//! agnostic: the engine always emits it, and each client decides whether it
+//! can reach a local browser.
 
 use crate::error::{CoreError, CoreResult};
 use houston_terminal_manager::Provider;
@@ -414,11 +417,7 @@ async fn relay_login_output(
                 if status.success() {
                     None
                 } else {
-                    Some(format_exit_error(
-                        &cli_name,
-                        &format!("{status}"),
-                        &stderr_text,
-                    ))
+                    Some(format_exit_error(&cli_name, &format!("{status}"), &stderr_text))
                 },
             )
         }
@@ -427,11 +426,7 @@ async fn relay_login_output(
             let stderr_text = drain_stderr(stderr_handle).await;
             (
                 false,
-                Some(format_exit_error(
-                    &cli_name,
-                    &format!("wait failed: {e}"),
-                    &stderr_text,
-                )),
+                Some(format_exit_error(&cli_name, &format!("wait failed: {e}"), &stderr_text)),
             )
         }
         Ok(RelayOutcome::Cancelled) => {
@@ -596,10 +591,7 @@ mod tests {
     #[test]
     fn extract_url_stops_at_whitespace() {
         let line = "visit: https://example.com/oauth?x=1 and then come back";
-        assert_eq!(
-            extract_login_url(line).unwrap(),
-            "https://example.com/oauth?x=1"
-        );
+        assert_eq!(extract_login_url(line).unwrap(), "https://example.com/oauth?x=1");
     }
 
     #[test]
@@ -639,10 +631,7 @@ mod tests {
                 .is_none()
         );
         // The code line yields the code.
-        assert_eq!(
-            extract_device_user_code("   ABCD-EFGHI").unwrap(),
-            "ABCD-EFGHI"
-        );
+        assert_eq!(extract_device_user_code("   ABCD-EFGHI").unwrap(), "ABCD-EFGHI");
     }
 
     #[test]
@@ -654,7 +643,7 @@ mod tests {
         assert!(extract_device_user_code("using device code authorization:").is_none());
         assert!(extract_device_user_code("HELLO").is_none()); // single group, no hyphen
         assert!(extract_device_user_code("abcd-efghi").is_none()); // lowercase
-                                                                   // Some device codes chunk into three groups — still one token.
+        // Some device codes chunk into three groups — still one token.
         assert_eq!(
             extract_device_user_code("code: WDJB-MJHT-1234 now").unwrap(),
             "WDJB-MJHT-1234"
@@ -664,10 +653,7 @@ mod tests {
     #[test]
     fn strip_ansi_removes_sgr_colour_codes() {
         // Verbatim wrappers from codex 0.133 stdout.
-        assert_eq!(
-            strip_ansi("   \u{1b}[94mRH7H-TS5DE\u{1b}[0m"),
-            "   RH7H-TS5DE"
-        );
+        assert_eq!(strip_ansi("   \u{1b}[94mRH7H-TS5DE\u{1b}[0m"), "   RH7H-TS5DE");
         assert_eq!(
             strip_ansi("\u{1b}[90mOpenAI's command-line coding agent\u{1b}[0m"),
             "OpenAI's command-line coding agent"
@@ -675,10 +661,7 @@ mod tests {
         // Multi-parameter SGR (`\x1b[31;1m`) is stripped too.
         assert_eq!(strip_ansi("\u{1b}[31;1mError\u{1b}[0m"), "Error");
         // A clean line is returned untouched (borrowed, not reallocated).
-        assert!(matches!(
-            strip_ansi("plain line"),
-            std::borrow::Cow::Borrowed("plain line")
-        ));
+        assert!(matches!(strip_ansi("plain line"), std::borrow::Cow::Borrowed("plain line")));
     }
 
     #[test]

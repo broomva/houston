@@ -16,7 +16,7 @@ import {
 import { analytics } from "../../lib/analytics";
 import { shortcutLabel } from "../../lib/shortcuts";
 import { TabBar } from "@houston-ai/layout";
-import { STANDARD_TABS, DEFAULT_TAB_ID } from "../../agents/standard-tabs";
+import { STANDARD_TABS, DEFAULT_TAB_ID, STANDARD_TAB_IDS } from "../../agents/standard-tabs";
 import { useActivity } from "../../hooks/queries";
 import { useAgentCatalogStore } from "../../stores/agent-catalog";
 import { useAgentStore } from "../../stores/agents";
@@ -68,37 +68,42 @@ export function WorkspaceShell({ toasts, onDismissToast }: WorkspaceShellProps) 
   const setUiTourActive = useUIStore((s) => s.setUiTourActive);
   const [panelContainer, setPanelContainer] = useState<HTMLDivElement | null>(null);
   const agentDef = currentAgent ? getById(currentAgent.configId) : undefined;
-  // Upstream #291 made every agent render one hardcoded STANDARD_TABS set.
-  // The fork layers three flag-gated power-user tabs on top of that base —
-  // they are per-install UI flags, not per-agent declarations, so they survive
-  // the refactor as additive extras rather than re-introducing the dropped
-  // per-agent `tabs` config.
-  // Phase 3 — `advanced.git_panel` injects a `Git` tab on agents whose working
-  // directory is a git repo (repo check is per-agent so non-code agents stay
-  // un-cluttered).
+  const baseTabs = agentDef?.config.tabs ?? [];
+  // Phase 3 — `advanced.git_panel` injects a `Git` tab on agents whose
+  // working directory is a git repo. The flag is per-install (UI-only
+  // enforcement); the repo check is per-agent so non-code agents stay
+  // un-cluttered.
   const gitPanelFlagOn = useFeatureFlag("advanced.git_panel");
   const gitRepoCheck = useIsGitRepo(
     gitPanelFlagOn && currentAgent ? currentAgent.folderPath : null,
   );
   const showGitTab = gitPanelFlagOn && gitRepoCheck.data === true;
-  // Phase 4 — `advanced.timeline` injects a `Timeline` tab on every agent.
+  // Phase 4 — `advanced.timeline` injects a `Timeline` tab on every agent
+  // (no per-agent check; every agent has at least the chance of activities).
   const timelineFlagOn = useFeatureFlag("advanced.timeline");
   const showTimelineTab = timelineFlagOn && Boolean(currentAgent);
   // Phase 5 — `advanced.checkpoints` injects a `Checkpoints` tab on every agent.
   const checkpointsFlagOn = useFeatureFlag("advanced.checkpoints");
   const showCheckpointsTab = checkpointsFlagOn && Boolean(currentAgent);
   const tabs = [
-    ...STANDARD_TABS,
+    ...baseTabs,
     ...(showGitTab
-      ? [{ id: "git", label: "Git", builtIn: "git", badge: undefined } as const]
+      ? [{ id: "git", label: "Git", builtIn: "git" as const }]
       : []),
     ...(showTimelineTab
-      ? [{ id: "timeline", label: "Timeline", builtIn: "timeline", badge: undefined } as const]
+      ? [{ id: "timeline", label: "Timeline", builtIn: "timeline" as const }]
       : []),
     ...(showCheckpointsTab
-      ? [{ id: "checkpoints", label: "Checkpoints", builtIn: "checkpoints", badge: undefined } as const]
+      ? [
+          {
+            id: "checkpoints",
+            label: "Checkpoints",
+            builtIn: "checkpoints" as const,
+          },
+        ]
       : []),
   ];
+  const hasActivityTab = tabs.some((tab) => tab.id === "activity");
   const { data: activities } = useActivity(currentAgent?.folderPath);
   const needsYouCount = (activities ?? []).filter((a) => a.status === "needs_you").length;
   const isAgentView =
@@ -106,20 +111,13 @@ export function WorkspaceShell({ toasts, onDismissToast }: WorkspaceShellProps) 
     viewMode !== "connections" &&
     viewMode !== "linear" &&
     viewMode !== "settings";
-  // Standard ids plus whichever flag-gated tabs are currently active. Used both
-  // to spotlight tour targets and to gate the viewMode-reset effect so an active
-  // git/timeline/checkpoints tab isn't bounced back to the default.
-  const tabIds = new Set(tabs.map((tab) => tab.id));
-  const tabOr = (id: string) => (tabIds.has(id) ? id : DEFAULT_TAB_ID);
+  const tabOr = (id: string) => (STANDARD_TAB_IDS.has(id) ? id : DEFAULT_TAB_ID);
 
   useEffect(() => {
-    if (isAgentView && !tabIds.has(viewMode)) {
+    if (isAgentView && !STANDARD_TAB_IDS.has(viewMode)) {
       setViewMode(DEFAULT_TAB_ID);
     }
-    // tabIds is derived each render from the active flag-gated tab set; depend on
-    // its serialized contents so toggling a flag re-evaluates the active tab.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAgentView, setViewMode, viewMode, tabs.map((t) => t.id).join(",")]);
+  }, [isAgentView, setViewMode, viewMode]);
 
   // Single tab_opened analytics point — watches viewMode regardless of which
   // path triggered the change (TabBar click, sidebar nav, keyboard shortcut,
@@ -173,65 +171,89 @@ export function WorkspaceShell({ toasts, onDismissToast }: WorkspaceShellProps) 
                     activeTab={viewMode}
                     onTabChange={setViewMode}
                     actions={
-                      <div data-keep-panel-open className="flex items-center gap-2">
+                      <div
+                        data-keep-panel-open
+                        className="flex min-w-0 flex-1 items-center justify-end gap-2"
+                      >
                         {currentAgent && (
                           <MissionSearchInput
                             value={agentMissionSearchQuery}
                             isSearchingText={agentMissionSearchLoading}
                             labels={{
                               placeholder: t("board:search.placeholder"),
+                              placeholderShort: t("board:search.placeholderShort"),
                               clear: t("board:search.clear"),
                               searchingText: t("board:search.searchingText"),
                             }}
-                            className="relative w-[240px]"
+                            className="relative min-w-0 flex-1 max-w-[320px]"
                             onChange={(value) => {
                               setAgentMissionSearchQuery(currentAgent.folderPath, value);
-                              if (viewMode !== "activity") setViewMode("activity");
+                              if (hasActivityTab && viewMode !== "activity") {
+                                setViewMode("activity");
+                              }
                             }}
                           />
                         )}
-                        <Button
-                          data-tour-target="appTour"
-                          variant="ghost"
-                          className="rounded-full"
-                          onClick={() => setUiTourActive(true)}
-                        >
-                          {t("shell:tabActions.startTour")}
-                          <Compass className="size-4" />
-                        </Button>
-                        {onStartMission && (
+                        <div className="flex shrink-0 items-center gap-2">
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <Button
-                                data-tour-target="newMission"
-                                onClick={() => {
-                                  setViewMode("activity");
-                                  setTimeout(() => {
-                                    useUIStore.getState().onStartMission?.();
-                                  }, 50);
-                                }}
+                                data-tour-target="appTour"
+                                variant="ghost"
+                                size={missionPanelOpen ? "icon" : "default"}
+                                className="rounded-full"
+                                onClick={() => setUiTourActive(true)}
+                                aria-label={t("shell:tabActions.startTour")}
                               >
-                                <HoustonLogo size={16} />
-                                {t("shell:tabActions.newMission")}
+                                <Compass className="size-4" />
+                                {!missionPanelOpen && t("shell:tabActions.startTour")}
                               </Button>
                             </TooltipTrigger>
-                            <TooltipContent side="bottom">
-                              {shortcutLabel("newMission")}
-                            </TooltipContent>
+                            {missionPanelOpen && (
+                              <TooltipContent side="bottom">
+                                {t("shell:tabActions.startTour")}
+                              </TooltipContent>
+                            )}
                           </Tooltip>
-                        )}
-                        {boardActions.map((action) => (
-                          <Button
-                            key={action.id}
-                            variant="secondary"
-                            onClick={() => {
-                              setViewMode("activity");
-                              setTimeout(() => action.onClick(), 50);
-                            }}
-                          >
-                            {action.label}
-                          </Button>
-                        ))}
+                          {onStartMission && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  data-tour-target="newMission"
+                                  size={missionPanelOpen ? "icon" : "default"}
+                                  className={cn(missionPanelOpen && "rounded-full")}
+                                  onClick={() => {
+                                    setViewMode("activity");
+                                    setTimeout(() => {
+                                      useUIStore.getState().onStartMission?.();
+                                    }, 50);
+                                  }}
+                                  aria-label={t("shell:tabActions.newMission")}
+                                >
+                                  <HoustonLogo size={16} />
+                                  {!missionPanelOpen && t("shell:tabActions.newMission")}
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent side="bottom">
+                                {missionPanelOpen
+                                  ? t("shell:tabActions.newMission")
+                                  : shortcutLabel("newMission")}
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
+                          {boardActions.map((action) => (
+                            <Button
+                              key={action.id}
+                              variant="secondary"
+                              onClick={() => {
+                                setViewMode("activity");
+                                setTimeout(() => action.onClick(), 50);
+                              }}
+                            >
+                              {action.label}
+                            </Button>
+                          ))}
+                        </div>
                       </div>
                     }
                   />
@@ -241,7 +263,6 @@ export function WorkspaceShell({ toasts, onDismissToast }: WorkspaceShellProps) 
                       agentDef={agentDef}
                       agent={currentAgent}
                       activeTabId={viewMode}
-                      tabs={tabs}
                     />
                   </main>
                 </>

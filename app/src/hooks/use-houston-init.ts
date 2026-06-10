@@ -5,8 +5,8 @@ import { useWorkspaceStore } from "../stores/workspaces";
 import { useAgentStore } from "../stores/agents";
 import { useUIStore } from "../stores/ui";
 import { analytics } from "../lib/analytics";
-import { runFlagMigrations } from "../lib/featureFlags";
 import { DEFAULT_TAB_ID } from "../agents/standard-tabs";
+import { runFlagMigrations } from "../lib/featureFlags";
 
 /**
  * App initialization hook. Called once in App.tsx.

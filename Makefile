@@ -10,13 +10,13 @@ help:
 	@echo "make verify-all       - Run all validation checks (typecheck, locales, cargo-sync, test)"
 
 typecheck:
-	bun run typecheck
+	pnpm typecheck
 
 test:
 	cargo test --workspace
 
 check-locales:
-	bun --filter houston-app check-locales
+	pnpm --filter houston-app check-locales
 
 cargo-sync-check:
 	./scripts/cargo-sync-check.sh

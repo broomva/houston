@@ -35,9 +35,65 @@
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
+
+/// Set when the app is tearing down so the supervisor treats the next engine
+/// exit as deliberate — no crash report, no respawn. Without this, a Windows
+/// force-quit (Job Object `TerminateProcess`) gives the engine a non-zero exit
+/// that looks like a crash. Unix graceful shutdown exits 0 and is already
+/// filtered by [`engine_exit_is_crash`], but the flag makes intent explicit on
+/// every platform.
+static ENGINE_SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
+
+/// Mark that the app is shutting down. Call from the Tauri `RunEvent::Exit`
+/// handler so an engine exit during teardown is not misreported as a crash.
+pub fn mark_shutting_down() {
+    ENGINE_SHUTTING_DOWN.store(true, Ordering::SeqCst);
+}
+
+/// Whether an engine exit warrants a Sentry crash event. Graceful shutdown
+/// (the engine's stdin-EOF watchdog calls `exit(0)`) and deliberate teardown
+/// are not reported; a non-zero / signal exit is. `exit_success` is
+/// `wait()`'s status mapped through `ExitStatus::success` (`None` = already
+/// reaped via deliberate kill). Pure so the policy is unit-testable without
+/// fabricating a real `ExitStatus`.
+fn engine_exit_is_crash(exit_success: Option<bool>, shutting_down: bool) -> bool {
+    if shutting_down {
+        return false;
+    }
+    matches!(exit_success, Some(false))
+}
+
+/// Report an unexpected engine exit to Sentry (the app process owns the Sentry
+/// client). Tagged so the shared `houston-app` project can isolate engine
+/// crashes, and fingerprinted so a crash-loop collapses into ONE issue rather
+/// than one issue per restart. No-op when Sentry isn't initialized.
+fn report_engine_crash(exit: Option<std::process::ExitStatus>, backoff: Duration) {
+    let code = exit.and_then(|s| s.code());
+    sentry::with_scope(
+        |scope| {
+            scope.set_tag("runtime", "engine-supervisor");
+            scope.set_tag("source", "engine_crash");
+            if let Some(c) = code {
+                scope.set_tag("engine.exit_code", c.to_string());
+            }
+            // One issue for the whole crash-loop, not one per restart.
+            scope.set_fingerprint(Some(&["engine-subprocess-exit"][..]));
+        },
+        || {
+            sentry::capture_message(
+                &format!(
+                    "houston-engine subprocess exited unexpectedly (exit {exit:?}); \
+                     supervisor restarting after {backoff:?}"
+                ),
+                sentry::Level::Error,
+            );
+        },
+    );
+}
 
 /// Config discovered from the engine binary's first-line banner.
 #[derive(Clone, Debug)]
@@ -215,7 +271,9 @@ impl EngineSubprocess {
             loop {
                 if Instant::now() > deadline {
                     let _ = child.kill();
-                    return Err(format!("engine did not emit banner within {timeout:?}"));
+                    return Err(format!(
+                        "engine did not emit banner within {timeout:?}"
+                    ));
                 }
                 line.clear();
                 let n = reader
@@ -340,10 +398,7 @@ pub fn resolve_engine_binary(resource_dir: Option<&PathBuf>) -> Result<PathBuf, 
         .join("..")
         .join("..");
     let target_debug = workspace_root.join("target").join("debug").join(bin_name());
-    let target_release = workspace_root
-        .join("target")
-        .join("release")
-        .join(bin_name());
+    let target_release = workspace_root.join("target").join("release").join(bin_name());
 
     // 2. Debug: prefer cargo target (freshest under `tauri dev`).
     #[cfg(debug_assertions)]
@@ -374,10 +429,9 @@ pub fn resolve_engine_binary(resource_dir: Option<&PathBuf>) -> Result<PathBuf, 
 
     // 4. Resources dir — legacy fallback.
     if let Some(resources) = resource_dir {
-        if let Some(hit) = try_candidate(
-            resources.join("binaries").join(bin_name_no_triple()),
-            &mut tried,
-        ) {
+        if let Some(hit) =
+            try_candidate(resources.join("binaries").join(bin_name_no_triple()), &mut tried)
+        {
             return Ok(hit);
         }
         if let Some(hit) = try_candidate(
@@ -487,7 +541,24 @@ pub fn spawn_supervisor<C: SupervisorCallbacks>(
                 guard.and_then(|g| g.as_ref().map(|s| s.wait())).flatten()
             };
 
+            // App tearing down → exit is deliberate. Stop the supervisor: don't
+            // report a crash and don't respawn an engine that would outlive the
+            // app for an instant holding a port.
+            if ENGINE_SHUTTING_DOWN.load(Ordering::SeqCst) {
+                tracing::info!("[engine] supervisor stopping — app shutting down");
+                break;
+            }
+
             tracing::warn!("[engine] subprocess exited: {:?}", exit);
+
+            // A non-zero / signal exit while NOT shutting down is a genuine
+            // crash (panic-abort, OOM, segfault). Surface it as a Sentry event
+            // — the supervisor's INFO/WARN logs are only breadcrumbs, so a
+            // crash-looping engine would otherwise be invisible. Graceful
+            // stdin-EOF shutdown (exit 0) is filtered out here.
+            if engine_exit_is_crash(exit.map(|s| s.success()), false) {
+                report_engine_crash(exit, backoff);
+            }
 
             // Drop the exited handle.
             if let Ok(mut guard) = slot_clone.lock() {
@@ -606,10 +677,7 @@ mod win_job {
         unsafe {
             let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
             if job.is_null() {
-                return Err(format!(
-                    "CreateJobObjectW: {}",
-                    std::io::Error::last_os_error()
-                ));
+                return Err(format!("CreateJobObjectW: {}", std::io::Error::last_os_error()));
             }
             let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
             info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
@@ -635,7 +703,10 @@ mod win_job {
 }
 
 /// Poll `/v1/health` until a 2xx response, or timeout. Uses bearer auth.
-pub fn wait_until_healthy(handshake: &EngineHandshake, timeout: Duration) -> Result<(), String> {
+pub fn wait_until_healthy(
+    handshake: &EngineHandshake,
+    timeout: Duration,
+) -> Result<(), String> {
     let client = reqwest::blocking::Client::new();
     let url = format!("{}/v1/health", handshake.base_url());
     let deadline = Instant::now() + timeout;
@@ -673,6 +744,25 @@ mod tests {
     #[test]
     fn rejects_unknown_line() {
         assert!(parse_banner("hello world").is_none());
+    }
+
+    #[test]
+    fn crash_only_on_nonzero_exit_while_running() {
+        // Non-zero exit while running = genuine crash → report.
+        assert!(engine_exit_is_crash(Some(false), false));
+        // Graceful stdin-EOF shutdown exits 0 → not a crash.
+        assert!(!engine_exit_is_crash(Some(true), false));
+        // Already reaped (deliberate kill) → not a crash.
+        assert!(!engine_exit_is_crash(None, false));
+    }
+
+    #[test]
+    fn never_crash_when_shutting_down() {
+        // The shutdown flag suppresses reporting even for a non-zero exit
+        // (Windows force-kill gives the engine a non-zero status on teardown).
+        assert!(!engine_exit_is_crash(Some(false), true));
+        assert!(!engine_exit_is_crash(Some(true), true));
+        assert!(!engine_exit_is_crash(None, true));
     }
 
     /// The Windows orphan-fix contract: a process assigned to our job dies

@@ -130,9 +130,7 @@ async fn disconnect_app(
     State(_st): State<Arc<ServerState>>,
     Json(req): Json<ToolkitRef>,
 ) -> Result<(), ApiError> {
-    inner::disconnect_composio_app(req.toolkit)
-        .await
-        .map_err(lift)
+    inner::disconnect_composio_app(req.toolkit).await.map_err(lift)
 }
 
 /// Reconnect (refresh auth on) a toolkit. Returns `{ redirectUrl }` — a

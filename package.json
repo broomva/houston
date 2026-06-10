@@ -1,6 +1,6 @@
 {
   "name": "houston-ai",
-  "version": "0.4.17",
+  "version": "0.4.21",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -26,16 +26,13 @@
   "engines": {
     "bun": ">=1.3.10"
   },
-  "trustedDependencies": [
-    "@sentry/cli"
-  ],
   "lint-staged": {
     "*.{ts,tsx,js,jsx}": [
       "bash -c 'bun run typecheck'",
-      "bash -c 'bun --filter houston-app check-locales'"
+      "bash -c 'bun --cwd app run check-locales'"
     ],
     "*.rs": [
-      "rustfmt --edition 2021 --check"
+      "rustfmt --check"
     ],
     "package.json": [
       "./scripts/cargo-sync-check.sh"

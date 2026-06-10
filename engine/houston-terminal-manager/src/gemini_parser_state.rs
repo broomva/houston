@@ -185,11 +185,6 @@ fn handle_result(
         output_tokens,
         cache_creation_input_tokens: None,
         cache_read_input_tokens,
-        // Context-usage indicator covers Anthropic + Codex for now. Gemini is
-        // a "coming soon" provider with no published context-window size in
-        // the model catalog, so we leave usage unset until it ships (the token
-        // stats are already in `stats` and can be normalized then).
-        usage: None,
     });
     items
 }
@@ -426,12 +421,10 @@ mod tests {
                 input_tokens,
                 output_tokens,
                 cache_read_input_tokens,
-                usage,
                 ..
             } => {
                 assert_eq!(*duration_ms, Some(1200));
                 assert!(cost_usd.is_none(), "gemini emits no cost field");
-                assert!(usage.is_none(), "gemini usage not wired yet");
                 assert!(result.contains("100 tokens"));
                 assert_eq!(*input_tokens, Some(50));
                 assert_eq!(*output_tokens, Some(50));

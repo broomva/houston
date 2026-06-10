@@ -73,7 +73,7 @@ export function ConnectedAppsSection({
       // so surface its failure instead of letting it fail silently.
       void tauriSystem
         .openUrl(composioAppUrl(toolkit, orgName))
-        .catch((err) => showErrorToast("composio_open_manage", String(err)));
+        .catch((err) => showErrorToast("composio_open_manage", String(err), err));
     },
     [orgName],
   );
@@ -90,7 +90,7 @@ export function ConnectedAppsSection({
           try {
             await tauriSystem.openUrl(redirectUrl);
           } catch (err) {
-            showErrorToast("reconnect_open_url", String(err));
+            showErrorToast("reconnect_open_url", String(err), err);
             return;
           }
           // Refetch when the user returns from the browser.

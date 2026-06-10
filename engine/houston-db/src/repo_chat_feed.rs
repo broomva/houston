@@ -123,7 +123,10 @@ impl Database {
     }
 
     /// Clear all chat feed items for a claude session.
-    pub async fn clear_chat_feed_by_session(&self, claude_session_id: &str) -> Result<()> {
+    pub async fn clear_chat_feed_by_session(
+        &self,
+        claude_session_id: &str,
+    ) -> Result<()> {
         self.conn()
             .execute(
                 "DELETE FROM chat_feed WHERE claude_session_id = ?1",

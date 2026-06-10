@@ -130,7 +130,6 @@ pub async fn launch_login(
         });
         return Ok(());
     }
-
     // Gemini has no `gemini auth login` subcommand. Instead, gemini-cli
     // exposes an `authenticate` JSON-RPC method over its `--acp` mode
     // (Agent Communication Protocol) that triggers Google's OAuth flow
@@ -141,7 +140,8 @@ pub async fn launch_login(
         let (_, gemini_path) = provider.resolve();
         let path = gemini_path.ok_or_else(|| {
             CoreError::BadRequest(
-                "Gemini CLI binary not found. Reinstall Houston to restore the bundled CLI.".into(),
+                "Gemini CLI binary not found. Reinstall Houston to restore the bundled CLI."
+                    .into(),
             )
         })?;
         return gemini_login::launch_login(path).await;
@@ -242,7 +242,9 @@ pub async fn launch_login(
         Ok(Ok(status)) => {
             // Exited cleanly within 3s — unusual but possible if the CLI
             // already had a cached session or printed a "done" message.
-            tracing::info!("[houston:provider] {cli_name} login completed in <3s: {status}");
+            tracing::info!(
+                "[houston:provider] {cli_name} login completed in <3s: {status}"
+            );
             Ok(())
         }
         Ok(Err(e)) => {
@@ -250,7 +252,9 @@ pub async fn launch_login(
                 "[houston:provider] {cli_name} login wait failed at {}: {e}",
                 path.display()
             );
-            Err(CoreError::Internal(format!("{cli_name} login wait: {e}")))
+            Err(CoreError::Internal(format!(
+                "{cli_name} login wait: {e}"
+            )))
         }
         Err(_) => {
             // Still running after 3s — the OAuth flow is in progress.
@@ -346,11 +350,7 @@ pub async fn launch_logout(provider: Provider) -> CoreResult<()> {
             );
             Err(CoreError::Internal(format!(
                 "{cli_name} logout failed: {}",
-                if stderr.is_empty() {
-                    "no stderr".into()
-                } else {
-                    stderr
-                }
+                if stderr.is_empty() { "no stderr".into() } else { stderr }
             )))
         }
         Ok(Err(e)) => {
@@ -580,10 +580,7 @@ mod tests {
         assert!(msg.contains("os error 193"), "got: {msg}");
         assert!(msg.contains("codex"), "got: {msg}");
         assert!(msg.contains("not a valid application"), "got: {msg}");
-        assert!(
-            msg.contains("codex.exe"),
-            "should name the binary path: {msg}"
-        );
+        assert!(msg.contains("codex.exe"), "should name the binary path: {msg}");
     }
 
     #[test]
@@ -644,12 +641,7 @@ mod tests {
         // Device flow → `codex login --device-auth`.
         assert_eq!(
             select_login_args(openai, true).map(|a| a.to_vec()),
-            Some(vec![
-                "login",
-                "--device-auth",
-                "-c",
-                "model_reasoning_effort=high"
-            ])
+            Some(vec!["login", "--device-auth", "-c", "model_reasoning_effort=high"])
         );
     }
 

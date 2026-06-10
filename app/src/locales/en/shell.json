@@ -33,6 +33,12 @@
     "nativeTriggeredTitle": "Native Sentry smoke triggered",
     "nativeTriggeredDescription": "Check Sentry for sentry-native-stack-smoke-test."
   },
+  "errorToast": {
+    "problemTitle": "Houston, we have a problem!",
+    "reportSentTitle": "Houston, report sent",
+    "reportSentDescription": "Reference #{{id}}.",
+    "copyId": "Copy code"
+  },
   "agentDelete": {
     "title": "Delete agent?",
     "description": "This will permanently delete the agent and all its data. This cannot be undone."

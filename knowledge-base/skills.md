@@ -6,9 +6,18 @@ A Skill is a reusable procedure stored as a markdown file with YAML frontmatter.
 
 ```
 .agents/skills/<slug>/SKILL.md       # source of truth, YAML frontmatter + body
-.claude/skills/<slug>                # symlink → ../../.agents/skills/<slug>
+.claude/skills/<slug>                # live link → ../../.agents/skills/<slug>
                                      # auto-created by engine on `list_skills`
 ```
+
+The `.claude/skills/<slug>` discovery node is what makes a skill visible to
+Claude Code natively. On Unix it is a relative symlink. On Windows a real
+symlink needs Developer Mode or admin (os error 1314), so the engine falls back
+to a **directory junction** — privilege-free and, crucially, *live*: it always
+reflects the source `SKILL.md`, so a skill the agent later rewrites never goes
+stale behind the mirror. A plain copy is the last resort for the rare non-NTFS
+volume that rejects junctions. See `ensure_claude_mirror` in
+`engine/houston-engine-core/src/skills.rs`.
 
 Houston Store agent packages may also include `.agents/skills/*`.
 Install copies the package to `~/.houston/agents/<id>/`; creating a
@@ -110,6 +119,22 @@ requests are globally spaced, and stale cached results are returned during a
 temporary 429/network failure. App search callers handle remaining failures
 inline in the Add Skills UI; they should not show global "Houston problem" bug
 toasts for marketplace search misses.
+
+## Installing a community / repo skill
+
+`install_skill` (skills.sh) and `install_from_repo` (GitHub) both route the
+fetched `SKILL.md` through `houston_skills::install_skill_md`, which **preserves
+the author's frontmatter** (description, category, integrations, image, inputs)
+instead of rebuilding a bare one. Two invariants matter:
+
+- The install slug owns the on-disk directory **and** the frontmatter `name`
+  (derived from the source `name:` when valid, else a slugified id), so the two
+  never drift and `list_skills` always finds the installed skill.
+- Installed skills are marked `featured: true`. A user who explicitly installs
+  a skill must be able to find it: the chat empty state shows only featured
+  skills when any exist, so a non-featured install would silently never appear
+  on the cards. Bookkeeping (version/created/last_used) is reset to a fresh
+  install.
 
 ## Skill invocation marker (chat persistence)
 

@@ -75,25 +75,16 @@ impl std::fmt::Display for ClaudeInstallError {
                 write!(f, "Anthropic's download server returned HTTP {status}.")
             }
             Self::ChecksumMismatch { detail } => {
-                write!(
-                    f,
-                    "Downloaded Claude Code failed checksum verification ({detail})."
-                )
+                write!(f, "Downloaded Claude Code failed checksum verification ({detail}).")
             }
             Self::PlatformUnsupported { platform } => {
-                write!(
-                    f,
-                    "No Claude Code download is pinned for platform '{platform}'."
-                )
+                write!(f, "No Claude Code download is pinned for platform '{platform}'.")
             }
             Self::WriteFailed { detail } => {
                 write!(f, "Failed to write Claude Code to disk: {detail}")
             }
             Self::ManifestMissing => {
-                write!(
-                    f,
-                    "cli-deps.json manifest not available; install the pinned manifest first."
-                )
+                write!(f, "cli-deps.json manifest not available; install the pinned manifest first.")
             }
             Self::ManifestEntryMissing => write!(f, "cli-deps.json has no 'claude-code' entry."),
             Self::Unknown { detail } => write!(f, "Claude Code install failed: {detail}"),
@@ -129,9 +120,15 @@ pub enum HoustonEvent {
         error: Option<String>,
     },
     /// Toast notification for the UI.
-    Toast { message: String, variant: String },
+    Toast {
+        message: String,
+        variant: String,
+    },
     /// CLI tool authentication required — provider session returned 401 or similar.
-    AuthRequired { provider: String, message: String },
+    AuthRequired {
+        provider: String,
+        message: String,
+    },
     /// Activity completion notification.
     CompletionToast {
         title: String,
@@ -139,6 +136,7 @@ pub enum HoustonEvent {
     },
 
     // ----- Event system (houston-events) -----
+
     /// An input event was received and queued for processing.
     EventReceived {
         event_id: String,
@@ -148,9 +146,13 @@ pub enum HoustonEvent {
         summary: String,
     },
     /// An input event was processed.
-    EventProcessed { event_id: String, status: String },
+    EventProcessed {
+        event_id: String,
+        status: String,
+    },
 
     // ----- Scheduler (houston-scheduler) -----
+
     /// A heartbeat fired.
     HeartbeatFired {
         prompt: String,
@@ -164,39 +166,61 @@ pub enum HoustonEvent {
     },
 
     // ----- Routines -----
+
     /// Preference key was set. Emitted by `PUT /v1/preferences/:key` so
     /// other tabs / clients / mobile companions can invalidate their cached
     /// preference reads. `value` is `None` when the key was cleared (stored
     /// as an empty string today; reserved for a future explicit DELETE).
-    PreferenceChanged { key: String, value: Option<String> },
+    PreferenceChanged {
+        key: String,
+        value: Option<String>,
+    },
 
     /// Routines list changed (.houston/routines.json).
-    RoutinesChanged { agent_path: String },
+    RoutinesChanged {
+        agent_path: String,
+    },
     /// Routine runs changed (.houston/routine_runs.json).
-    RoutineRunsChanged { agent_path: String },
+    RoutineRunsChanged {
+        agent_path: String,
+    },
 
     // ----- Agent data changes (AI-native reactivity) -----
     // Emitted by agent_store writes AND by the file watcher.
     // Frontend uses these to invalidate TanStack Query caches.
+
     /// Activity list changed (.houston/activity.json).
-    ActivityChanged { agent_path: String },
+    ActivityChanged {
+        agent_path: String,
+    },
     /// Skills changed (.agents/skills/ — skill.sh / Claude Code convention).
-    SkillsChanged { agent_path: String },
+    SkillsChanged {
+        agent_path: String,
+    },
     /// Agent files changed (non-.houston files).
-    FilesChanged { agent_path: String },
+    FilesChanged {
+        agent_path: String,
+    },
     /// Config changed (.houston/config.json).
-    ConfigChanged { agent_path: String },
+    ConfigChanged {
+        agent_path: String,
+    },
     /// Context files changed (CLAUDE.md, .houston/prompts/).
-    ContextChanged { agent_path: String },
+    ContextChanged {
+        agent_path: String,
+    },
     /// Conversations list changed.
     ConversationsChanged {
         project_id: String,
         agent_path: String,
     },
     /// Learnings changed (.houston/learnings/learnings.json).
-    LearningsChanged { agent_path: String },
+    LearningsChanged {
+        agent_path: String,
+    },
 
     // ----- Composio CLI lifecycle -----
+
     /// Composio CLI is installed and ready. Frontend should invalidate
     /// the connections query so the integrations tab updates.
     ComposioCliReady,
@@ -220,6 +244,7 @@ pub enum HoustonEvent {
     // downloads it on first launch via `houston-claude-installer`. The
     // frontend uses these events to render the install progress banner
     // and re-check provider auth status once ready.
+
     /// Claude Code CLI download in progress. `progress_pct` is 0-100;
     /// emitted at most every 10 percentage points so the channel isn't
     /// flooded during a ~120 MB download.
@@ -248,6 +273,7 @@ pub enum HoustonEvent {
     //     and the CLI polls + completes on its own (no paste-back).
     // These events surface the URL (and, for device-grant, the code) to
     // the UI.
+
     /// A provider's OAuth login subprocess produced a sign-in URL.
     /// Frontend should display it (and optionally `window.open` it).
     ///

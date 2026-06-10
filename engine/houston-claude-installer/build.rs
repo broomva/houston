@@ -62,18 +62,13 @@ fn main() {
     // it to the linker. link.exe merges it with rustc's default manifest,
     // which carries no `requestedExecutionLevel` — that absence is the
     // whole reason Installer Detection fires — so there's no conflict.
-    let out_dir =
-        PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR is set by cargo for build scripts"));
+    let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR is set by cargo for build scripts"));
     let manifest_path = out_dir.join("asinvoker.manifest");
-    fs::write(&manifest_path, ASINVOKER_MANIFEST)
-        .expect("failed to write asInvoker manifest to OUT_DIR");
+    fs::write(&manifest_path, ASINVOKER_MANIFEST).expect("failed to write asInvoker manifest to OUT_DIR");
 
     // One `rustc-link-arg` value == one linker argument (cargo does not
     // re-split on spaces), so a manifest path containing spaces is passed
     // through intact without extra quoting.
     println!("cargo:rustc-link-arg=/MANIFEST:EMBED");
-    println!(
-        "cargo:rustc-link-arg=/MANIFESTINPUT:{}",
-        manifest_path.display()
-    );
+    println!("cargo:rustc-link-arg=/MANIFESTINPUT:{}", manifest_path.display());
 }

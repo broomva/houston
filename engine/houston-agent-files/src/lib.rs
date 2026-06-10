@@ -284,8 +284,10 @@ pub fn migrate_agent_data(agent_root: &Path) -> Result<()> {
 /// `"opus"` → 4.7 is deliberate: it preserves the exact model existing users
 /// were implicitly running rather than silently bumping them to the new
 /// flagship (they can opt into 4.8 from the picker).
-const LEGACY_MODEL_ALIASES: &[(&str, &str)] =
-    &[("opus", "claude-opus-4-7"), ("sonnet", "claude-sonnet-4-6")];
+const LEGACY_MODEL_ALIASES: &[(&str, &str)] = &[
+    ("opus", "claude-opus-4-7"),
+    ("sonnet", "claude-sonnet-4-6"),
+];
 
 /// Rewrite a legacy Claude model alias in `.houston/config/config.json` to its
 /// explicit version ID. Idempotent: explicit IDs and unknown values pass
@@ -362,9 +364,9 @@ enum Backfill {
 /// file copy when the OS denies symlink creation (Windows without
 /// Developer Mode returns os error 1314).
 fn link_or_copy_role_file(target_path: &Path, link_path: &Path) -> std::io::Result<Backfill> {
-    let target_name = target_path.file_name().ok_or_else(|| {
-        std::io::Error::new(std::io::ErrorKind::InvalidInput, "target has no file name")
-    })?;
+    let target_name = target_path
+        .file_name()
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "target has no file name"))?;
     #[cfg(unix)]
     {
         if std::os::unix::fs::symlink(target_name, link_path).is_ok() {
@@ -460,7 +462,8 @@ mod tests {
         let dir = TempDir::new().unwrap();
         write_config(dir.path(), "not json at all");
         migrate_config_model_aliases(dir.path()).unwrap();
-        let raw = fs::read_to_string(dir.path().join(".houston/config/config.json")).unwrap();
+        let raw =
+            fs::read_to_string(dir.path().join(".houston/config/config.json")).unwrap();
         assert_eq!(raw, "not json at all");
     }
 
@@ -578,10 +581,7 @@ mod tests {
             classify(".houston/activity/activity.json"),
             Some("activity".to_string())
         );
-        assert_eq!(
-            classify(".houston/routines/routines.json"),
-            Some("routines".to_string())
-        );
+        assert_eq!(classify(".houston/routines/routines.json"), Some("routines".to_string()));
         assert_eq!(classify("CLAUDE.md"), None);
     }
 
@@ -590,10 +590,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         seed_schemas(dir.path()).unwrap();
         for (name, _) in schemas::ALL {
-            assert!(dir
-                .path()
-                .join(format!(".houston/{name}/{name}.schema.json"))
-                .exists());
+            assert!(dir.path().join(format!(".houston/{name}/{name}.schema.json")).exists());
         }
     }
 
@@ -651,10 +648,7 @@ mod tests {
         migrate_agent_data(dir.path()).unwrap();
 
         let flat = fs::read_to_string(dir.path().join(".houston/config.json")).unwrap();
-        assert!(
-            flat.contains("opus"),
-            "flat config must stay as a rollback net: {flat}"
-        );
+        assert!(flat.contains("opus"), "flat config must stay as a rollback net: {flat}");
     }
 
     #[test]
@@ -783,8 +777,7 @@ mod tests {
 
         migrate_agent_data(dir.path()).unwrap();
 
-        let json =
-            fs::read_to_string(dir.path().join(".houston/learnings/learnings.json")).unwrap();
+        let json = fs::read_to_string(dir.path().join(".houston/learnings/learnings.json")).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.as_array().unwrap().len(), 2);
         assert_eq!(parsed[0]["text"].as_str().unwrap(), "first learning");

@@ -79,6 +79,11 @@ impl ServerState {
             tracing::warn!("[boot] workspace provider migration failed: {e}");
         }
 
+        let repaired_activities = sweep_orphan_activities(paths.docs(), &events);
+        if repaired_activities > 0 {
+            tracing::info!("[boot] repaired {repaired_activities} orphan running activity row(s)");
+        }
+
         // Ensure every historical agent folder is a git working tree.
         // The create-time `ensure_repo_sync` call only covers agents
         // created after PR #55 landed; this walk fixes any agent dir
@@ -110,11 +115,6 @@ impl ServerState {
             Err(e) => {
                 tracing::warn!("[boot] agent git-init migration failed: {e}");
             }
-        }
-
-        let repaired_activities = sweep_orphan_activities(paths.docs(), &events);
-        if repaired_activities > 0 {
-            tracing::info!("[boot] repaired {repaired_activities} orphan running activity row(s)");
         }
 
         let engine = EngineState::new(paths, Arc::new(events.clone()), db.clone())

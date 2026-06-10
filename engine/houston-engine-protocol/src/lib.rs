@@ -427,6 +427,7 @@ pub fn event_topic(event: &HoustonEvent) -> String {
         HoustonEvent::ProviderLoginUrl { .. } | HoustonEvent::ProviderLoginComplete { .. } => {
             "providers".into()
         }
+        HoustonEvent::PreferenceChanged { .. } => "preferences".into(),
     }
 }
 

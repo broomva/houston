@@ -93,29 +93,31 @@ pub fn run() {
     // builds) from development noise (someone running `pnpm tauri dev` with
     // a DSN exported). Tile filters in Sentry default to production.
     let sentry_dsn = option_env!("SENTRY_DSN").unwrap_or("");
+    // Compute release + environment ONCE so the app's own Sentry client AND the
+    // engine subprocess (handed these via env at spawn, below) land on the SAME
+    // release tag + environment in the shared `houston-app` project. The
+    // release equals `sentry::release_name!()` (`houston-app@<CARGO_PKG_VERSION>`)
+    // for release builds; we build it explicitly so it can also be forwarded to
+    // the engine. It MUST match the `--release` the .github/workflows/release.yml
+    // upload steps use, or stack traces won't resolve.
+    let sentry_release = if cfg!(debug_assertions) {
+        format!("houston-app@{}-dev", env!("CARGO_PKG_VERSION"))
+    } else {
+        format!("houston-app@{}", env!("CARGO_PKG_VERSION"))
+    };
+    let sentry_environment = if cfg!(debug_assertions) {
+        "development"
+    } else {
+        "production"
+    };
     let _sentry_client = if sentry_dsn.is_empty() {
         None
     } else {
-        let sentry_release = if cfg!(debug_assertions) {
-            Some(std::borrow::Cow::Owned(format!(
-                "houston-app@{}-dev",
-                env!("CARGO_PKG_VERSION")
-            )))
-        } else {
-            sentry::release_name!()
-        };
         Some(sentry::init((
             sentry_dsn,
             sentry::ClientOptions {
-                release: sentry_release,
-                environment: Some(
-                    if cfg!(debug_assertions) {
-                        "development"
-                    } else {
-                        "production"
-                    }
-                    .into(),
-                ),
+                release: Some(std::borrow::Cow::Owned(sentry_release.clone())),
+                environment: Some(std::borrow::Cow::Borrowed(sentry_environment)),
                 auto_session_tracking: true,
                 ..Default::default()
             },
@@ -146,14 +148,18 @@ pub fn run() {
     // running app natively, no second instance is ever spawned.
     #[cfg(any(target_os = "windows", target_os = "linux"))]
     {
-        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            tracing::info!("[single-instance] secondary launch routed to primary");
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.unminimize();
-                let _ = window.show();
-                let _ = window.set_focus();
-            }
-        }));
+        builder = builder.plugin(tauri_plugin_single_instance::init(
+            |app, _argv, _cwd| {
+                tracing::info!(
+                    "[single-instance] secondary launch routed to primary"
+                );
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.unminimize();
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            },
+        ));
     }
 
     // Sentry plugin — only if DSN was provided
@@ -165,7 +171,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_deep_link::init())
-        .setup(|app| {
+        .setup(move |app| {
             // Deep-link handler for Google-OAuth callbacks
             // (`houston://auth-callback?code=...`). Forwards the URL to the
             // frontend; Supabase's PKCE exchange runs in JS so the verifier
@@ -275,6 +281,20 @@ pub fn run() {
                 if !v.is_empty() {
                     engine_env.push(("HOUSTON_TUNNEL_URL".into(), v));
                 }
+            }
+            // Hand our Sentry config to the engine subprocess so engine-side
+            // panics + `tracing::error!` land in the SAME Sentry project, under
+            // the SAME release, tagged `runtime=engine` (the engine reads these
+            // in `main::init_sentry`). Gated on the app actually having a DSN so
+            // forks / dev builds inject nothing and the engine stays a silent
+            // no-op. The engine debug files CI uploads then become useful.
+            if !sentry_dsn.is_empty() {
+                engine_env.push(("SENTRY_DSN".into(), sentry_dsn.to_string()));
+                engine_env.push(("SENTRY_RELEASE".into(), sentry_release.clone()));
+                engine_env.push((
+                    "SENTRY_ENVIRONMENT".into(),
+                    sentry_environment.to_string(),
+                ));
             }
             // 30s banner timeout: first-run Gatekeeper scan on a notarized
             // sidecar can take 15–20s on slow machines.
@@ -408,6 +428,12 @@ pub fn run() {
                     tracing::debug!("[app] WindowEvent::Focused(true) — emitting app-activated");
                     let _ = app_handle.emit("app-activated", ());
                 }
+                // App is exiting — tell the supervisor so the engine's imminent
+                // exit is treated as deliberate (no spurious "engine crashed"
+                // Sentry event on quit, especially the Windows force-kill path).
+                tauri::RunEvent::Exit => {
+                    engine_supervisor::mark_shutting_down();
+                }
                 _ => {}
             }
         });
@@ -442,10 +468,7 @@ fn migrate_all_agents(workspaces_root: &std::path::Path) {
         let agent_entries = match std::fs::read_dir(&ws_path) {
             Ok(it) => it,
             Err(e) => {
-                tracing::warn!(
-                    "[migrate-agents] read_dir({}) failed: {e}",
-                    ws_path.display()
-                );
+                tracing::warn!("[migrate-agents] read_dir({}) failed: {e}", ws_path.display());
                 continue;
             }
         };
@@ -455,10 +478,7 @@ fn migrate_all_agents(workspaces_root: &std::path::Path) {
             if !agent_path.is_dir() {
                 continue;
             }
-            let agent_name = agent_path
-                .file_name()
-                .and_then(|s| s.to_str())
-                .unwrap_or("");
+            let agent_name = agent_path.file_name().and_then(|s| s.to_str()).unwrap_or("");
             if agent_name.starts_with('.') {
                 continue;
             }
@@ -508,10 +528,7 @@ fn migrate_legacy_docs_dir(houston: &std::path::Path) {
     }
 
     if let Err(e) = std::fs::create_dir_all(&new_root) {
-        tracing::warn!(
-            "[migrate] create_dir_all({}) failed: {e}",
-            new_root.display()
-        );
+        tracing::warn!("[migrate] create_dir_all({}) failed: {e}", new_root.display());
         return;
     }
 

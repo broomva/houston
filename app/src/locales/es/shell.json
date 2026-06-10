@@ -33,6 +33,12 @@
     "nativeTriggeredTitle": "Prueba nativa de Sentry activada",
     "nativeTriggeredDescription": "Revisa Sentry para sentry-native-stack-smoke-test."
   },
+  "errorToast": {
+    "problemTitle": "Houston, tenemos un problema.",
+    "reportSentTitle": "Houston, reporte enviado",
+    "reportSentDescription": "Referencia #{{id}}.",
+    "copyId": "Copiar código"
+  },
   "agentDelete": {
     "title": "¿Eliminar el agente?",
     "description": "Se eliminará el agente y todos sus datos de forma permanente. Esta acción no se puede deshacer."

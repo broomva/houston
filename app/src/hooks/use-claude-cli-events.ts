@@ -4,8 +4,8 @@ import type { HoustonEvent } from "@houston-ai/core";
 import { subscribeHoustonEvents } from "../lib/events";
 import { tauriProvider } from "../lib/tauri";
 import { useUIStore } from "../stores/ui";
-import { useClaudeInstallErrorText } from "./use-claude-install";
 import { logger } from "../lib/logger";
+import { useClaudeInstallErrorText } from "./use-claude-install";
 
 /**
  * Subscriber for the `claude` WS topic — closes the loop on #231.
@@ -19,10 +19,11 @@ import { logger } from "../lib/logger";
  * - `ClaudeCliReady` — install finished (or already at the pinned
  *   version). Re-runs the provider status check so the Anthropic chip
  *   and "claudeAvailable" gate flip without a launch.
- * - `ClaudeCliFailed { error }` — fatal install error. `error` is the
- *   typed `ClaudeInstallError` taxonomy (kind + optional status / platform
- *   / detail). We localize it to a user-facing string via
- *   `useClaudeInstallErrorText` and surface it through `addToast` as an
+ * - `ClaudeCliFailed { message }` — fatal install error. `message` is
+ *   the engine's pre-formatted user-facing string and ALREADY carries
+ *   pinned version, source URL, target path, and HTTP status / SHA
+ *   mismatch hex / OS error (see `houston-claude-installer/src/error.rs`
+ *   `install_err`). We surface it verbatim through `addToast` as an
  *   error variant — the toast container renders plain text with the
  *   error icon and dismiss control (`ui/core/src/components/toast-container.tsx`).
  *
@@ -30,9 +31,9 @@ import { logger } from "../lib/logger";
  */
 export function useClaudeCliEvents() {
   const { t } = useTranslation("shell");
+  const installErrorText = useClaudeInstallErrorText();
   const addToast = useUIStore((s) => s.addToast);
   const setClaudeAvailable = useUIStore((s) => s.setClaudeAvailable);
-  const installErrorText = useClaudeInstallErrorText();
 
   useEffect(() => {
     const unlisten = subscribeHoustonEvents((p: HoustonEvent) => {
@@ -68,24 +69,26 @@ export function useClaudeCliEvents() {
               );
             });
           break;
-        case "ClaudeCliFailed": {
-          // Localize the typed install error to a user-facing string and
-          // surface it per CLAUDE.md §"No silent failures" — the toast IS
-          // the user-facing error.
-          const description = installErrorText(p.data.error);
-          logger.error(`[claude-cli] failed: ${p.data.error.kind}`);
+        case "ClaudeCliFailed":
+          // Engine-provided message already carries every actionable
+          // field (version, URL, status code or SHA hex, target path,
+          // OS error). Surface verbatim per CLAUDE.md §"No silent
+          // failures" — the toast IS the user-facing error.
+          logger.error(
+            `[claude-cli] failed: kind=${p.data.error.kind}` +
+              (p.data.error.detail ? ` detail=${p.data.error.detail}` : ""),
+          );
           addToast({
             title: t("claudeCli.installFailedTitle"),
-            description,
+            description: installErrorText(p.data.error),
             variant: "error",
           });
           break;
-        }
       }
     });
 
     return () => {
       unlisten();
     };
-  }, [addToast, setClaudeAvailable, t, installErrorText]);
+  }, [addToast, installErrorText, setClaudeAvailable, t]);
 }

@@ -35,8 +35,7 @@ pub enum ClaudeEvent {
         duration_ms: Option<u64>,
         session_id: Option<String>,
         /// Cumulative-turn token usage on the terminal event. Used as a
-        /// fallback when no assistant message carried per-request usage,
-        /// and to populate the `advanced.context_meter` in-composer wheel.
+        /// fallback when no assistant message carried per-request usage.
         usage: Option<ClaudeUsageRaw>,
         #[serde(flatten)]
         extra: serde_json::Value,
@@ -284,23 +283,14 @@ pub enum FeedItem {
         #[serde(default)]
         pre_tokens: Option<u64>,
     },
-    /// Session completed — cost/duration/usage summary.
-    ///
-    /// The flat token fields populate the fork's `advanced.context_meter`
-    /// wheel (`use-context-stats` reads `input_tokens` / `cache_read_…`
-    /// directly); all are optional because not every provider emits them
-    /// (gemini parses stats per turn but doesn't always echo back in result;
-    /// codex emits via `turn.completed`). `usage` is the provider-agnostic
-    /// normalized rollup that feeds the upstream context-usage indicator;
-    /// `None` for providers that don't surface usage yet.
+    /// Session completed — cost/duration summary.
     FinalResult {
         result: String,
         cost_usd: Option<f64>,
         duration_ms: Option<u64>,
-        input_tokens: Option<u64>,
-        output_tokens: Option<u64>,
-        cache_creation_input_tokens: Option<u64>,
-        cache_read_input_tokens: Option<u64>,
+        /// Normalized token usage for the turn, when the provider reported it.
+        /// Feeds the chat context-usage indicator; `None` for providers that
+        /// don't surface usage yet.
         usage: Option<TokenUsage>,
     },
     /// Visible files created or changed during the session.

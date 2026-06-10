@@ -216,24 +216,15 @@ pub fn parse_event(line: &str, acc: &mut StreamAccumulator) -> Vec<FeedItem> {
             // Prefer the per-request usage captured from the last assistant
             // message (the true context-window size); fall back to the
             // terminal event's own usage block when no assistant message
-            // carried one. This normalized `usage` feeds the upstream
-            // context-usage indicator.
+            // carried one.
             let usage = acc
                 .last_usage
                 .take()
                 .or_else(|| result_usage.map(|u| u.normalize()));
-            // The fork's `advanced.context_meter` wheel reads the raw
-            // Anthropic four-way split off the flat fields. Surface them
-            // straight from the terminal event's usage block; absent stays
-            // `None` (unknown), never coerced to zero.
             vec![FeedItem::FinalResult {
                 result: result.unwrap_or_default(),
                 cost_usd,
                 duration_ms,
-                input_tokens: result_usage.map(|u| u.input_tokens),
-                output_tokens: result_usage.map(|u| u.output_tokens),
-                cache_creation_input_tokens: result_usage.map(|u| u.cache_creation_input_tokens),
-                cache_read_input_tokens: result_usage.map(|u| u.cache_read_input_tokens),
                 usage,
             }]
         }
@@ -266,7 +257,9 @@ fn parse_rate_limit_event(extra: serde_json::Value) -> Vec<FeedItem> {
         .get("message")
         .and_then(|v| v.as_str())
         .map(truncate_excerpt)
-        .unwrap_or_else(|| format!("Anthropic rate-limit signal: {status}"));
+        .unwrap_or_else(|| {
+            format!("Anthropic rate-limit signal: {status}")
+        });
     vec![FeedItem::ProviderError(ProviderError::RateLimited {
         provider: ANTHROPIC.into(),
         model: None,
@@ -311,8 +304,7 @@ fn parse_system_event(subtype: Option<&str>, extra: &serde_json::Value) -> Vec<F
 /// Read a JSON value as a `u64`, tolerating a numeric string (some Claude
 /// telemetry paths stringify token counts).
 fn json_u64(v: &serde_json::Value) -> Option<u64> {
-    v.as_u64()
-        .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+    v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok()))
 }
 
 fn parse_assistant_event(
@@ -494,8 +486,7 @@ mod tests {
     fn parse_compact_boundary_tolerates_missing_metadata() {
         // A future/variant shape without compact_metadata still produces the
         // marker (pre_tokens unknown) rather than crashing or going silent.
-        let line =
-            r#"{"type":"system","subtype":"compact_boundary","session_id":"s1","uuid":"u1"}"#;
+        let line = r#"{"type":"system","subtype":"compact_boundary","session_id":"s1","uuid":"u1"}"#;
         let items = parse_event(line, &mut acc());
         assert_eq!(items.len(), 1);
         assert!(matches!(
@@ -648,42 +639,14 @@ mod tests {
             FeedItem::FinalResult {
                 cost_usd,
                 duration_ms,
-                input_tokens,
-                output_tokens,
                 ..
             } => {
                 assert_eq!(*cost_usd, Some(0.05));
                 assert_eq!(*duration_ms, Some(1234));
-                // No `usage` block on this fixture — token fields stay None.
-                assert_eq!(*input_tokens, None);
-                assert_eq!(*output_tokens, None);
             }
             other => panic!("expected FinalResult, got {other:?}"),
         }
         assert_eq!(extract_session_id(line), Some("s1".to_string()));
-    }
-
-    #[test]
-    fn parse_result_event_with_usage_populates_context_meter_fields() {
-        // Real-shape claude-code envelope with prompt caching active.
-        let line = r#"{"type":"result","result":"Done","cost_usd":0.12,"duration_ms":4500,"session_id":"s2","usage":{"input_tokens":24500,"output_tokens":810,"cache_creation_input_tokens":1200,"cache_read_input_tokens":18000}}"#;
-        let items = parse_event(line, &mut acc());
-        assert_eq!(items.len(), 1);
-        match &items[0] {
-            FeedItem::FinalResult {
-                input_tokens,
-                output_tokens,
-                cache_creation_input_tokens,
-                cache_read_input_tokens,
-                ..
-            } => {
-                assert_eq!(*input_tokens, Some(24500));
-                assert_eq!(*output_tokens, Some(810));
-                assert_eq!(*cache_creation_input_tokens, Some(1200));
-                assert_eq!(*cache_read_input_tokens, Some(18000));
-            }
-            other => panic!("expected FinalResult, got {other:?}"),
-        }
     }
 
     #[test]
@@ -843,9 +806,11 @@ mod tests {
         let second = r#"{"type":"assistant","message":{"content":[{"type":"text","text":"done"}],"usage":{"input_tokens":50,"cache_read_input_tokens":2000,"output_tokens":80}}}"#;
         let _ = parse_event(first, &mut a);
         let _ = parse_event(second, &mut a);
-        let usage =
-            final_result_usage(&parse_event(r#"{"type":"result","result":"Done"}"#, &mut a))
-                .expect("usage present");
+        let usage = final_result_usage(&parse_event(
+            r#"{"type":"result","result":"Done"}"#,
+            &mut a,
+        ))
+        .expect("usage present");
         assert_eq!(usage.context_tokens, 50 + 2000);
     }
 
@@ -854,8 +819,8 @@ mod tests {
         // No assistant message this turn — fall back to the terminal event's
         // own usage block so the indicator still updates.
         let line = r#"{"type":"result","result":"Done","usage":{"input_tokens":10,"cache_read_input_tokens":90000,"output_tokens":50}}"#;
-        let usage =
-            final_result_usage(&parse_event(line, &mut acc())).expect("usage from result event");
+        let usage = final_result_usage(&parse_event(line, &mut acc()))
+            .expect("usage from result event");
         assert_eq!(usage.context_tokens, 10 + 90_000);
         assert_eq!(usage.cached_tokens, 90_000);
         assert_eq!(usage.output_tokens, 50);

@@ -77,27 +77,13 @@ async fn status(State(st): State<Arc<ServerState>>) -> Json<ClaudeStatus> {
     let pinned_version = houston_cli_bundle::load_bundled_manifest()
         .and_then(|m| m.entry("claude-code").map(|e| e.version));
 
-    // allow-silent-failure: the /v1/claude/status endpoint is read-only
-    // diagnostic data for the UI panel. A DB error here downgrades to
-    // "no installed version known" (None), which matches the first-boot
-    // path. We log so the failure is diagnosable; we don't fail the
-    // request because the UI also reads `installed: bool` (the
-    // authoritative answer about whether the binary is usable).
-    let installed_version = match st
+    let installed_version = st
         .engine
         .db
         .get_preference(houston_claude_installer::PREF_INSTALLED_VERSION)
         .await
-    {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::warn!(
-                "[claude:status] failed to read pref '{}': {e}; returning None",
-                houston_claude_installer::PREF_INSTALLED_VERSION
-            );
-            None
-        }
-    };
+        .ok()
+        .flatten();
 
     // Empty string is the cleared sentinel — the installer writes "" on
     // a successful retry rather than deleting the row, so we filter it

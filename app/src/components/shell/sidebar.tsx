@@ -3,7 +3,6 @@ import { useTranslation } from "react-i18next";
 import { LayoutDashboard, Blend, Command, Link2, Settings } from "lucide-react";
 import { ConfirmDialog, Kbd, KbdGroup } from "@houston-ai/core";
 import { AppSidebar, WorkspaceSwitcher } from "@houston-ai/layout";
-import { shortcutParts } from "../../lib/shortcuts";
 import { useWorkspaceStore } from "../../stores/workspaces";
 import { useAgentStore } from "../../stores/agents";
 import { useUIStore } from "../../stores/ui";
@@ -14,6 +13,7 @@ import { useAgentActivitySummaries } from "./use-agent-activity-summaries";
 import { buildAgentSidebarItems } from "./agent-sidebar-items";
 import { orderAgents } from "../../lib/agent-order";
 import { DEFAULT_TAB_ID } from "../../agents/standard-tabs";
+import { shortcutParts } from "../../lib/shortcuts";
 
 export function Sidebar({ children }: { children: ReactNode }) {
   const { t } = useTranslation(["shell", "common", "portable"]);

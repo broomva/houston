@@ -4,7 +4,7 @@
 //! that apps previously implemented manually.
 
 use crate::session_id_tracker::SessionIdHandle;
-use crate::session_pids::SessionPidMap;
+use crate::session_pids::{PidInsert, SessionPidMap};
 use houston_db::Database;
 use houston_terminal_manager::auth_error::{is_auth_error, is_auth_retry_marker};
 use houston_terminal_manager::provider_auth::ProviderAuthState;
@@ -142,7 +142,20 @@ pub fn spawn_and_monitor(
             match update {
                 SessionUpdate::ProcessPid(pid) => {
                     if let Some(ref pm) = pid_map {
-                        pm.insert(key.clone(), pid).await;
+                        if pm.insert(key.clone(), pid).await == PidInsert::AlreadyCancelled {
+                            // Stop was pressed before this PID existed
+                            // (slow prep or a provider retry respawn).
+                            // Kill it now or it runs to completion behind
+                            // the "Stopped by user" message (issue #469).
+                            tracing::info!(
+                                "[session_runner] pid {pid} arrived for cancelled session {key} — terminating"
+                            );
+                            if !crate::process_kill::terminate_process_tree(pid).await {
+                                tracing::error!(
+                                    "[session_runner] could not confirm late-spawn kill for cancelled session {key} (pid {pid})"
+                                );
+                            }
+                        }
                     }
                     continue;
                 }
@@ -157,7 +170,8 @@ pub fn spawn_and_monitor(
                     // embedder so it can flip persisted state (e.g.
                     // `routine_run.paused_until`). Any subsequent
                     // assistant/tool output is treated as the resume.
-                    let lifecycle_ref = persist.as_ref().and_then(|p| p.lifecycle.as_deref());
+                    let lifecycle_ref =
+                        persist.as_ref().and_then(|p| p.lifecycle.as_deref());
                     notify_lifecycle(item, lifecycle_ref, &mut paused_signaled);
                     // Collapse ALL auth-flavored system messages into a single
                     // "Checking connection..." banner. Covers three shapes we've
@@ -437,27 +451,13 @@ fn serialize_for_persist(item: &FeedItem) -> Option<(String, String)> {
             result,
             cost_usd,
             duration_ms,
-            input_tokens,
-            output_tokens,
-            cache_creation_input_tokens,
-            cache_read_input_tokens,
             usage,
         } => {
-            // Two coexisting token surfaces, both persisted even when null:
-            // the flat four-way split feeds the fork's `advanced.context_meter`
-            // wheel (Anthropic + gemini populate; codex populates
-            // input/output/cache_read only), and `usage` serializes its
-            // TokenUsage object so upstream's context-usage indicator survives
-            // a history reload — same shape as the live FeedItem event.
+            // `usage` serializes to its TokenUsage object (or null) so the
+            // context-usage indicator survives a history reload, same as the
+            // live FeedItem event.
             let data = serde_json::json!({
-                "result": result,
-                "cost_usd": cost_usd,
-                "duration_ms": duration_ms,
-                "input_tokens": input_tokens,
-                "output_tokens": output_tokens,
-                "cache_creation_input_tokens": cache_creation_input_tokens,
-                "cache_read_input_tokens": cache_read_input_tokens,
-                "usage": usage,
+                "result": result, "cost_usd": cost_usd, "duration_ms": duration_ms, "usage": usage
             });
             Some(("final_result".into(), data.to_string()))
         }
@@ -722,10 +722,6 @@ mod tests {
             result: "Done".to_string(),
             cost_usd: Some(0.01),
             duration_ms: Some(1200),
-            input_tokens: None,
-            output_tokens: None,
-            cache_creation_input_tokens: None,
-            cache_read_input_tokens: None,
             usage: Some(houston_terminal_manager::TokenUsage {
                 context_tokens: 151_500,
                 output_tokens: 420,
@@ -780,10 +776,6 @@ mod tests {
             result: "Done".to_string(),
             cost_usd: None,
             duration_ms: None,
-            input_tokens: None,
-            output_tokens: None,
-            cache_creation_input_tokens: None,
-            cache_read_input_tokens: None,
             usage: None,
         };
 
