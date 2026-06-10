@@ -139,4 +139,3 @@ async fn gemini_set_credentials(
     provider::set_gemini_api_key(&body.api_key).await?;
     Ok(())
 }
-

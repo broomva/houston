@@ -30,7 +30,9 @@ async fn spawn_test_server() -> (SocketAddr, String) {
 #[tokio::test]
 async fn health_unauthorized_without_token() {
     let (addr, _) = spawn_test_server().await;
-    let res = reqwest::get(format!("http://{addr}/v1/health")).await.unwrap();
+    let res = reqwest::get(format!("http://{addr}/v1/health"))
+        .await
+        .unwrap();
     assert_eq!(res.status(), 401);
 }
 
@@ -124,7 +126,7 @@ mod ws_helpers {
             docs_dir: std::env::temp_dir(),
             app_system_prompt: String::new(),
             app_onboarding_prompt: String::new(),
-        tunnel_url: "http://test.invalid".into(),
+            tunnel_url: "http://test.invalid".into(),
         };
         let listener = TcpListener::bind(cfg.bind).await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -140,10 +142,8 @@ mod ws_helpers {
     pub async fn connect(addr: SocketAddr, token: &str) -> Ws {
         let url = format!("ws://{addr}/v1/ws?token={token}");
         let mut req = url.into_client_request().unwrap();
-        req.headers_mut().insert(
-            "authorization",
-            format!("Bearer {token}").parse().unwrap(),
-        );
+        req.headers_mut()
+            .insert("authorization", format!("Bearer {token}").parse().unwrap());
         let (ws, _) = connect_async(req).await.unwrap();
         ws
     }

@@ -121,7 +121,9 @@ async fn community_install(
     State(st): State<Arc<ServerState>>,
     Json(req): Json<InstallCommunityRequest>,
 ) -> Result<Json<String>, ApiError> {
-    Ok(Json(skills::install_community(&st.engine.events, req).await?))
+    Ok(Json(
+        skills::install_community(&st.engine.events, req).await?,
+    ))
 }
 
 async fn repo_list(
@@ -135,5 +137,7 @@ async fn repo_install(
     State(st): State<Arc<ServerState>>,
     Json(req): Json<InstallFromRepoRequest>,
 ) -> Result<Json<Vec<String>>, ApiError> {
-    Ok(Json(skills::install_from_repo(&st.engine.events, req).await?))
+    Ok(Json(
+        skills::install_from_repo(&st.engine.events, req).await?,
+    ))
 }

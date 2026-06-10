@@ -392,8 +392,8 @@ pub fn patch_skill(
         return Err(SkillError::NotFound(name.to_string()));
     }
     let (mut summary, body) = format::parse_file(&skill_md)?;
-    let patched_body = patch::fuzzy_replace(&body, old_text, new_text)
-        .ok_or(SkillError::PatchNotFound)?;
+    let patched_body =
+        patch::fuzzy_replace(&body, old_text, new_text).ok_or(SkillError::PatchNotFound)?;
     validate::content(&patched_body)?;
     summary.version += 1;
     let today = chrono::Local::now().format("%Y-%m-%d").to_string();
@@ -457,12 +457,16 @@ mod tests {
     fn create_and_list() {
         let tmp = TempDir::new().unwrap();
         let dir = tmp.path();
-        create_skill(dir, CreateSkillInput {
-            name: "my-skill".into(),
-            description: "Test skill".into(),
-            content: "## Procedure\n\n1. Do stuff\n".into(),
-            tags: vec!["test".into()],
-        }).unwrap();
+        create_skill(
+            dir,
+            CreateSkillInput {
+                name: "my-skill".into(),
+                description: "Test skill".into(),
+                content: "## Procedure\n\n1. Do stuff\n".into(),
+                tags: vec!["test".into()],
+            },
+        )
+        .unwrap();
 
         let skills = list_skills(dir).unwrap();
         assert_eq!(skills.len(), 1);
@@ -474,12 +478,16 @@ mod tests {
     fn create_and_load() {
         let tmp = TempDir::new().unwrap();
         let dir = tmp.path();
-        create_skill(dir, CreateSkillInput {
-            name: "loader-test".into(),
-            description: "Load test".into(),
-            content: "## Procedure\nTest body".into(),
-            tags: vec![],
-        }).unwrap();
+        create_skill(
+            dir,
+            CreateSkillInput {
+                name: "loader-test".into(),
+                description: "Load test".into(),
+                content: "## Procedure\nTest body".into(),
+                tags: vec![],
+            },
+        )
+        .unwrap();
 
         let skill = load_skill(dir, "loader-test").unwrap();
         assert_eq!(skill.summary.name, "loader-test");
@@ -490,18 +498,25 @@ mod tests {
     fn create_duplicate_fails() {
         let tmp = TempDir::new().unwrap();
         let dir = tmp.path();
-        create_skill(dir, CreateSkillInput {
-            name: "dup".into(),
-            description: "".into(),
-            content: "body".into(),
-            tags: vec![],
-        }).unwrap();
-        let result = create_skill(dir, CreateSkillInput {
-            name: "dup".into(),
-            description: "".into(),
-            content: "body".into(),
-            tags: vec![],
-        });
+        create_skill(
+            dir,
+            CreateSkillInput {
+                name: "dup".into(),
+                description: "".into(),
+                content: "body".into(),
+                tags: vec![],
+            },
+        )
+        .unwrap();
+        let result = create_skill(
+            dir,
+            CreateSkillInput {
+                name: "dup".into(),
+                description: "".into(),
+                content: "body".into(),
+                tags: vec![],
+            },
+        );
         assert!(result.is_err());
     }
 
@@ -509,12 +524,16 @@ mod tests {
     fn edit_increments_version() {
         let tmp = TempDir::new().unwrap();
         let dir = tmp.path();
-        create_skill(dir, CreateSkillInput {
-            name: "editable".into(),
-            description: "Edit me".into(),
-            content: "v1 content".into(),
-            tags: vec![],
-        }).unwrap();
+        create_skill(
+            dir,
+            CreateSkillInput {
+                name: "editable".into(),
+                description: "Edit me".into(),
+                content: "v1 content".into(),
+                tags: vec![],
+            },
+        )
+        .unwrap();
 
         edit_skill(dir, "editable", "v2 content").unwrap();
         let skill = load_skill(dir, "editable").unwrap();
@@ -526,12 +545,16 @@ mod tests {
     fn patch_fuzzy() {
         let tmp = TempDir::new().unwrap();
         let dir = tmp.path();
-        create_skill(dir, CreateSkillInput {
-            name: "patchable".into(),
-            description: "Patch me".into(),
-            content: "1. First step\n2. Second step\n".into(),
-            tags: vec![],
-        }).unwrap();
+        create_skill(
+            dir,
+            CreateSkillInput {
+                name: "patchable".into(),
+                description: "Patch me".into(),
+                content: "1. First step\n2. Second step\n".into(),
+                tags: vec![],
+            },
+        )
+        .unwrap();
 
         patch_skill(dir, "patchable", "Second step", "Updated step").unwrap();
         let skill = load_skill(dir, "patchable").unwrap();
@@ -544,12 +567,16 @@ mod tests {
     fn delete_removes_dir() {
         let tmp = TempDir::new().unwrap();
         let dir = tmp.path();
-        create_skill(dir, CreateSkillInput {
-            name: "deleteme".into(),
-            description: "".into(),
-            content: "body".into(),
-            tags: vec![],
-        }).unwrap();
+        create_skill(
+            dir,
+            CreateSkillInput {
+                name: "deleteme".into(),
+                description: "".into(),
+                content: "body".into(),
+                tags: vec![],
+            },
+        )
+        .unwrap();
         assert!(dir.join("deleteme").exists());
         delete_skill(dir, "deleteme").unwrap();
         assert!(!dir.join("deleteme").exists());
@@ -591,20 +618,31 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let dir = tmp.path();
         // Pre-existing skill directory
-        create_skill(dir, CreateSkillInput {
-            name: "shared".into(),
-            description: "Original".into(),
-            content: "body".into(),
-            tags: vec![],
-        }).unwrap();
+        create_skill(
+            dir,
+            CreateSkillInput {
+                name: "shared".into(),
+                description: "Original".into(),
+                content: "body".into(),
+                tags: vec![],
+            },
+        )
+        .unwrap();
         // Drop a conflicting flat file
         let flat = dir.join("shared.md");
-        std::fs::write(&flat, "---\nname: shared\ndescription: clobber\nversion: 1\ntags: []\n---\n\nbody\n").unwrap();
+        std::fs::write(
+            &flat,
+            "---\nname: shared\ndescription: clobber\nversion: 1\ntags: []\n---\n\nbody\n",
+        )
+        .unwrap();
 
         let _ = list_skills(dir).unwrap();
 
         // The flat file should be left alone (not silently overwriting the dir)
-        assert!(flat.exists(), "flat file should not be removed when target dir exists");
+        assert!(
+            flat.exists(),
+            "flat file should not be removed when target dir exists"
+        );
     }
 
     #[test]
