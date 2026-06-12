@@ -23,6 +23,7 @@ use std::path::{Component, Path, PathBuf};
 
 use thiserror::Error;
 
+pub mod builtin_skills;
 pub mod schemas;
 
 #[derive(Debug, Error)]
@@ -271,6 +272,11 @@ pub fn migrate_agent_data(agent_root: &Path) -> Result<()> {
 
     // Seed schemas at the end so every migrated agent has them available.
     seed_schemas(agent_root)?;
+
+    // Seed built-in skills (e.g. the guided job-description writer). Runs for
+    // every agent on create and on load; non-destructive, so user edits and
+    // deletions are preserved on subsequent migrations.
+    builtin_skills::seed_builtin_skills(agent_root)?;
     Ok(())
 }
 

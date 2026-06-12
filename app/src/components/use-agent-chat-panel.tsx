@@ -347,6 +347,25 @@ export function useAgentChatPanel({
     setActiveExternalSkill(null);
   }, [path, selectedSessionKey]);
 
+  // Seed the composer with a skill requested from elsewhere (e.g. the Job
+  // Description screen's "Help me write this" button). Declared AFTER the
+  // clear-on-session-change effect so it wins on the initial open, and it
+  // clears the pending slug the moment skills resolve so a later session
+  // change doesn't re-pin it. Waits for `allSkills` to load before deciding
+  // the slug is missing, so a slow skills fetch doesn't drop the request.
+  const pendingComposerSkillSlug = useUIStore((s) => s.pendingComposerSkillSlug);
+  const setPendingComposerSkill = useUIStore((s) => s.setPendingComposerSkill);
+  useEffect(() => {
+    if (!pendingComposerSkillSlug) return;
+    if (allSkills === undefined) return; // still loading — don't give up yet
+    const match = allSkills.find((s) => s.name === pendingComposerSkillSlug);
+    if (match) {
+      setActiveSkill(match);
+      setActiveExternalSkill(null);
+    }
+    setPendingComposerSkill(null);
+  }, [pendingComposerSkillSlug, allSkills, setPendingComposerSkill]);
+
   const onSelectSessionRef = useRef(onSelectSession);
   useEffect(() => {
     onSelectSessionRef.current = onSelectSession;

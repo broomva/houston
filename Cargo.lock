@@ -2588,6 +2588,7 @@ name = "houston-agent-files"
 version = "0.4.21"
 dependencies = [
  "chrono",
+ "houston-skills",
  "serde",
  "serde_json",
  "tempfile",

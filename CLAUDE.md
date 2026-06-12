@@ -67,6 +67,7 @@ Need specific knowledge? Load on demand:
 - Skills on disk + UI, picker, invocation marker → `knowledge-base/skills.md`
 - Agent manifest, tiers, sidebar, workspaces → `knowledge-base/agent-manifest.md`
 - Context model (workspace vs agent), isolation, enablement/import → `knowledge-base/context.md`
+- Guided job-description writer + voice (phase 2) → `knowledge-base/agent-manifest.md` + `knowledge-base/voice-input.md`
 - Engine wire protocol (REST + WS) → `knowledge-base/engine-protocol.md`
 - Provider error taxonomy + classifier contract → `knowledge-base/provider-errors.md`
 - `houston-engine` binary ops → `knowledge-base/engine-server.md`

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { FileText, LibraryBig, Brain } from "lucide-react";
 import { SkillDetailPage } from "@houston-ai/skills";
@@ -13,7 +13,11 @@ import {
 import type { TabProps } from "../../lib/types";
 import { useUIStore } from "../../stores/ui";
 import { LearningsContent } from "./learnings-content";
-import { InstructionsContent, type SubTab } from "./job-description-parts";
+import {
+  InstructionsContent,
+  JOB_DESCRIPTION_SKILL_SLUG,
+  type SubTab,
+} from "./job-description-parts";
 import { SkillsContent } from "./skills-content";
 import { useSkillSurface } from "./use-skill-surface";
 import {
@@ -28,6 +32,18 @@ export default function JobDescriptionTab({ agent }: TabProps) {
   const [activeTab, setActiveTab] = useState<SubTab>("instructions");
   const targetTab = useUIStore((s) => s.jobDescriptionTarget);
   const setTargetTab = useUIStore((s) => s.setJobDescriptionTarget);
+  const setViewMode = useUIStore((s) => s.setViewMode);
+  const setPendingComposerSkill = useUIStore((s) => s.setPendingComposerSkill);
+
+  // "Help me write this" → switch to the agent's Activity tab and open a new
+  // mission with the guided job-description writer pinned in the composer. The
+  // Activity tab registers `onStartMission` as it mounts on the view switch, so
+  // fire it on the next tick (mirrors command-palette's deferred new-mission).
+  const openInstructionWriter = useCallback(() => {
+    setPendingComposerSkill(JOB_DESCRIPTION_SKILL_SLUG);
+    setViewMode("activity");
+    setTimeout(() => useUIStore.getState().onStartMission?.(), 50);
+  }, [setPendingComposerSkill, setViewMode]);
 
   const { data: instructions } = useInstructions(path);
   const saveInstructions = useSaveInstructions(path);
@@ -81,6 +97,7 @@ export default function JobDescriptionTab({ agent }: TabProps) {
             onSave={(c) =>
               saveInstructions.mutateAsync({ name: "CLAUDE.md", content: c })
             }
+            onWriteWithHouston={openInstructionWriter}
           />
         )}
 

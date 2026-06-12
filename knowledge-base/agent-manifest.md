@@ -99,6 +99,32 @@ New Agent modal is Store-only for non-technical users.
 ## Agent creation
 Seeds agent CLAUDE.md from manifest `claudeMd` field or manifest's `CLAUDE.md` file. Fallback: generic template.
 
+## Writing a job description (guided)
+
+A blank CLAUDE.md is daunting. The Job Description tab's empty state offers
+**"Help me write this"** (primary) next to "I'll write it myself" (the plain
+editor). The guided button:
+
+1. Sets `pendingComposerSkillSlug` in the UI store (`app/src/stores/ui.ts`),
+   switches `viewMode` to `activity`, and fires `onStartMission` on the next tick
+   (the board tab registers it as it mounts — mirrors `command-palette`).
+   Handler: `openInstructionWriter` in `app/src/components/tabs/job-description-tab.tsx`.
+2. The agent's Activity tab opens a fresh mission with the bundled
+   **`write-my-job-description`** skill pre-pinned in the composer. The pin is
+   seeded inside `useAgentChatPanel` once the agent's skills load (it consumes +
+   clears the pending slug), so the clear-on-session-change effect can't race it.
+3. The agent proposes a simple starter, interviews the user briefly, and writes
+   the result to its own `CLAUDE.md`. The Job Description tab live-updates via the
+   file watcher. **Edits take effect on the agent's next chat** (the CLI reads
+   `CLAUDE.md` at startup).
+
+The same `Sparkles` action also appears (subtle) in the populated editor header
+("Help me improve this") so existing-but-weak job descriptions can be refined.
+
+`write-my-job-description` is a **built-in skill** seeded into every agent (not
+just Store agents) — see `skills.md` → "Built-in skills". Phase 2 adds voice
+dictation to this same fine-tune loop (`voice-input.md`).
+
 ## Default Personal assistant + tutorial
 
 Every newly-created workspace gets a `Personal assistant` instance from the
